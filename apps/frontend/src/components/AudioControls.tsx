@@ -97,7 +97,7 @@ export function AudioControls({
           <div>
             <div className="text-xs font-semibold">Mode B: Microphone Audio</div>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              Captures live speech via <code className="text-slate-300">getUserMedia()</code>
+              Captures live speech from your microphone
             </p>
           </div>
         </button>
@@ -120,7 +120,7 @@ export function AudioControls({
           <div>
             <div className="text-xs font-semibold">Mode A: Browser Tab Audio</div>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              Captures meeting tab via <code className="text-slate-300">getDisplayMedia()</code>
+              Captures audio directly from a shared browser tab
             </p>
           </div>
         </button>
