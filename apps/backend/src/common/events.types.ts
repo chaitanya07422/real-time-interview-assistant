@@ -1,11 +1,18 @@
 export type AudioInputMode = 'microphone' | 'tab';
 
+export type AnswerMode = 'concise' | 'detailed' | 'star';
+
 export interface StartSessionPayload {
   resume: string;
   jobDescription: string;
   audioMode: AudioInputMode;
+  answerMode?: AnswerMode;
   mimeType?: string;
   sampleRate?: number;
+}
+
+export interface SetAnswerModePayload {
+  answerMode: AnswerMode;
 }
 
 export interface AudioChunkJsonPayload {
@@ -13,8 +20,16 @@ export interface AudioChunkJsonPayload {
 }
 
 export interface ClientToServerMessage {
-  type: 'START_SESSION' | 'AUDIO_CHUNK' | 'STOP_SESSION';
-  payload?: StartSessionPayload | AudioChunkJsonPayload | Record<string, unknown>;
+  type:
+    | 'START_SESSION'
+    | 'SET_ANSWER_MODE'
+    | 'AUDIO_CHUNK'
+    | 'STOP_SESSION';
+  payload?:
+    | StartSessionPayload
+    | SetAnswerModePayload
+    | AudioChunkJsonPayload
+    | Record<string, unknown>;
 }
 
 export interface SessionReadyEvent {

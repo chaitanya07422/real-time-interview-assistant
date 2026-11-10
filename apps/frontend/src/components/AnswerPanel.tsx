@@ -39,6 +39,13 @@ export function AnswerPanel({
         <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-cyan-400" />
           Suggested Interview Answer (Streamed)
+          {activeQuestion?.answerMode && (
+            <span className="ml-1 px-2 py-0.5 rounded text-[10px] font-mono uppercase bg-cyan-950/70 text-cyan-300 border border-cyan-800/60">
+              {activeQuestion.answerMode === 'star'
+                ? 'STAR Format'
+                : activeQuestion.answerMode}
+            </span>
+          )}
         </h2>
 
         {latency && (

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { StartSessionPayload } from '../common/events.types';
+import { normalizeAnswerMode } from '../answer-generation/prompt.builder';
+import { AnswerMode, StartSessionPayload } from '../common/events.types';
 import {
   ActiveAnswerGeneration,
   DetectedQuestionRecord,
@@ -76,11 +77,13 @@ export class SessionManagerService {
     existingSessionId?: string,
   ): InterviewSessionState {
     const sessionId = existingSessionId ?? `session-${randomUUID()}`;
+    const answerMode = normalizeAnswerMode(payload.answerMode);
     const state: InterviewSessionState = {
       sessionId,
       resume: payload.resume.trim(),
       jobDescription: payload.jobDescription.trim(),
       audioMode: payload.audioMode,
+      answerMode,
       mimeType: payload.mimeType,
       sampleRate: payload.sampleRate,
       audioState: 'connecting',
@@ -95,9 +98,16 @@ export class SessionManagerService {
 
     this.sessions.set(sessionId, state);
     this.logger.log(
-      `Created interview session ${sessionId} (audioMode=${state.audioMode}, resumeChars=${state.resume.length}, jdChars=${state.jobDescription.length})`,
+      `Created interview session ${sessionId} (audioMode=${state.audioMode}, answerMode=${state.answerMode}, resumeChars=${state.resume.length}, jdChars=${state.jobDescription.length})`,
     );
     return state;
+  }
+
+  setAnswerMode(sessionId: string, mode?: string): AnswerMode | undefined {
+    const session = this.sessions.get(sessionId);
+    if (!session) return undefined;
+    session.answerMode = normalizeAnswerMode(mode);
+    return session.answerMode;
   }
 
   getSession(sessionId: string): InterviewSessionState | undefined {
@@ -132,6 +142,7 @@ export class SessionManagerService {
     const record: DetectedQuestionRecord = {
       questionId,
       question,
+      answerMode: session.answerMode,
       detectedAt,
       answer: '',
       completed: false,

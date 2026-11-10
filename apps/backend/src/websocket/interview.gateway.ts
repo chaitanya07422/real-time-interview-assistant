@@ -168,6 +168,9 @@ export class InterviewGateway implements OnModuleDestroy {
       case 'START_SESSION':
         this.handleStartSession(clientCtx, parsed.payload);
         break;
+      case 'SET_ANSWER_MODE':
+        this.handleSetAnswerMode(clientCtx, parsed.payload);
+        break;
       case 'AUDIO_CHUNK':
         this.handleJsonAudioChunk(clientCtx, parsed.payload);
         break;
@@ -316,6 +319,19 @@ export class InterviewGateway implements OnModuleDestroy {
     );
   }
 
+  private handleSetAnswerMode(
+    clientCtx: ClientConnectionContext,
+    payload: any,
+  ): void {
+    if (!clientCtx.sessionId) {
+      return;
+    }
+    this.sessionManager.setAnswerMode(
+      clientCtx.sessionId,
+      typeof payload?.answerMode === 'string' ? payload.answerMode : undefined,
+    );
+  }
+
   private handleSimulatedSpeech(
     clientCtx: ClientConnectionContext,
     payload: any,
@@ -329,6 +345,10 @@ export class InterviewGateway implements OnModuleDestroy {
         },
       });
       return;
+    }
+
+    if (typeof payload?.answerMode === 'string') {
+      this.sessionManager.setAnswerMode(clientCtx.sessionId, payload.answerMode);
     }
 
     const text = typeof payload?.text === 'string' ? payload.text.trim() : '';
@@ -430,6 +450,7 @@ export class InterviewGateway implements OnModuleDestroy {
         resume: session.resume,
         jobDescription: session.jobDescription,
         question,
+        answerMode: session.answerMode,
         recentHistory,
       },
       {

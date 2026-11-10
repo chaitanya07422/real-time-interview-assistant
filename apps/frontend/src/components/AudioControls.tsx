@@ -1,8 +1,17 @@
 'use client';
 
 import React from 'react';
-import { Mic, MonitorSpeaker, Play, Radio } from 'lucide-react';
 import {
+  Mic,
+  MonitorSpeaker,
+  Play,
+  Radio,
+  Zap,
+  AlignLeft,
+  Award,
+} from 'lucide-react';
+import {
+  AnswerMode,
   AppStatus,
   AudioInputMode,
   DEMO_INTERVIEW_QUESTIONS,
@@ -11,15 +20,45 @@ import {
 interface AudioControlsProps {
   audioMode: AudioInputMode;
   onChangeAudioMode: (mode: AudioInputMode) => void;
+  answerMode: AnswerMode;
+  onChangeAnswerMode: (mode: AnswerMode) => void;
   status: AppStatus;
   isCapturing: boolean;
   activeMimeType: string;
   onSimulateQuestion: (question: string) => void;
 }
 
+const ANSWER_MODE_OPTIONS: Array<{
+  mode: AnswerMode;
+  label: string;
+  sublabel: string;
+  icon: React.ComponentType<{ className?: string }>;
+}> = [
+  {
+    mode: 'concise',
+    label: 'Concise (Default)',
+    sublabel: '60–90 words • 3–6 bullet points',
+    icon: Zap,
+  },
+  {
+    mode: 'detailed',
+    label: 'Detailed',
+    sublabel: '130–180 words • Architecture & depth',
+    icon: AlignLeft,
+  },
+  {
+    mode: 'star',
+    label: 'STAR Format',
+    sublabel: 'Situation • Task • Action • Result',
+    icon: Award,
+  },
+];
+
 export function AudioControls({
   audioMode,
   onChangeAudioMode,
+  answerMode,
+  onChangeAnswerMode,
   status,
   isCapturing,
   activeMimeType,
@@ -92,6 +131,39 @@ export function AudioControls({
           Tip: When the browser dialog opens, select your interview tab (e.g., Google Meet / Zoom / YouTube) and enable <strong>&ldquo;Also share tab audio&rdquo;</strong>.
         </div>
       )}
+
+      <div className="pt-2 border-t border-slate-800/80">
+        <div className="text-[11px] font-medium text-slate-400 mb-2">
+          AI Answer Generation Mode (Default: Concise 60–90 words):
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          {ANSWER_MODE_OPTIONS.map(({ mode, label, sublabel, icon: Icon }) => {
+            const active = answerMode === mode;
+            return (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => onChangeAnswerMode(mode)}
+                className={`flex items-start gap-2.5 p-2.5 rounded-lg border text-left transition-all ${
+                  active
+                    ? 'bg-cyan-950/50 border-cyan-500/80 text-white'
+                    : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                }`}
+              >
+                <Icon
+                  className={`h-4 w-4 mt-0.5 shrink-0 ${
+                    active ? 'text-cyan-400' : 'text-slate-500'
+                  }`}
+                />
+                <div>
+                  <div className="text-xs font-semibold">{label}</div>
+                  <p className="text-[11px] text-slate-400 mt-0.5">{sublabel}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       <div className="pt-2 border-t border-slate-800/80">
         <div className="text-[11px] font-medium text-slate-400 mb-2">

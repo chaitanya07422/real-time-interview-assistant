@@ -6,6 +6,7 @@ import {
   InterviewWebSocketService,
 } from '../services/websocket';
 import {
+  AnswerMode,
   AppStatus,
   CandidateContext,
   DetectedQuestionItem,
@@ -31,6 +32,7 @@ export function useInterviewSocket() {
   const wsRef = useRef<InterviewWebSocketService | null>(null);
   const questionCounterRef = useRef<number>(0);
   const activeQuestionIdRef = useRef<string | null>(null);
+  const answerModeRef = useRef<AnswerMode>('concise');
   const { isCapturing, activeMimeType, startCapture, stopCapture } =
     useAudioCapture();
 
@@ -78,6 +80,7 @@ export function useInterviewSocket() {
               questionId,
               sequenceNumber: seq,
               question,
+              answerMode: answerModeRef.current,
               detectedAt: Date.now(),
               status: 'thinking',
               answer: '',
@@ -244,9 +247,11 @@ export function useInterviewSocket() {
           resume: trimmedResume,
           jobDescription: trimmedJd,
           audioMode: context.audioMode,
+          answerMode: context.answerMode,
           mimeType: audioMeta.mimeType,
           sampleRate: audioMeta.sampleRate,
         });
+        answerModeRef.current = context.answerMode;
       } catch (err: unknown) {
         stopCapture();
         wsRef.current?.disconnect();
@@ -304,11 +309,18 @@ export function useInterviewSocket() {
             resume: trimmedResume,
             jobDescription: trimmedJd,
             audioMode: context.audioMode,
+            answerMode: context.answerMode,
             mimeType: 'audio/webm',
           });
         }
 
-        wsRef.current.sendSimulatedSpeech(questionText, true, true);
+        answerModeRef.current = context.answerMode;
+        wsRef.current.sendSimulatedSpeech(
+          questionText,
+          true,
+          true,
+          context.answerMode,
+        );
       } catch (err: unknown) {
         setError({
           code: 'SIMULATION_FAILED',
@@ -321,6 +333,11 @@ export function useInterviewSocket() {
     },
     [handleBackendEvent],
   );
+
+  const updateAnswerMode = useCallback((mode: AnswerMode) => {
+    answerModeRef.current = mode;
+    wsRef.current?.sendSetAnswerMode(mode);
+  }, []);
 
   const clearError = useCallback(() => {
     setError(null);
@@ -356,6 +373,7 @@ export function useInterviewSocket() {
     startSession,
     stopSession,
     simulateQuestion,
+    updateAnswerMode,
     clearError,
   };
 }

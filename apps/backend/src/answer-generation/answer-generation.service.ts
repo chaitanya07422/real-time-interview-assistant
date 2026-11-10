@@ -1,9 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { GoogleGenAI } from '@google/genai';
 import {
-  INTERVIEW_SYSTEM_PROMPT,
   PromptContextInput,
+  buildSystemPrompt,
   buildUserPrompt,
+  getMaxOutputTokensForMode,
+  normalizeAnswerMode,
 } from './prompt.builder';
 
 export interface StreamAnswerCallbacks {
@@ -44,7 +46,10 @@ export class AnswerGenerationService {
     }
 
     const model = this.getModelName();
-    const userPrompt = buildUserPrompt(input);
+    const answerMode = normalizeAnswerMode(input.answerMode);
+    const systemInstruction = buildSystemPrompt(answerMode);
+    const maxOutputTokens = getMaxOutputTokensForMode(answerMode);
+    const userPrompt = buildUserPrompt({ ...input, answerMode });
     const startedAt = Date.now();
     let fullAnswer = '';
 
@@ -66,9 +71,9 @@ export class AnswerGenerationService {
           },
         ],
         config: {
-          systemInstruction: INTERVIEW_SYSTEM_PROMPT,
+          systemInstruction,
           temperature: 0.3,
-          maxOutputTokens: 320,
+          maxOutputTokens,
           ...(isGemini25 ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
           abortSignal,
         },

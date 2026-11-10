@@ -1,7 +1,9 @@
 import { AnswerGenerationService } from '../src/answer-generation/answer-generation.service';
 import {
   INTERVIEW_SYSTEM_PROMPT,
+  buildSystemPrompt,
   buildUserPrompt,
+  getMaxOutputTokensForMode,
 } from '../src/answer-generation/prompt.builder';
 
 describe('AnswerGenerationService & PromptBuilder (PRD Section 7 & 17.4)', () => {
@@ -10,7 +12,7 @@ describe('AnswerGenerationService & PromptBuilder (PRD Section 7 & 17.4)', () =>
   const sampleJd =
     'Looking for a Software Engineer experienced in TypeScript, React, NestJS, real-time WebSockets, and LLM integrations.';
 
-  it('builds a structured prompt containing resume, job description, question, and history', () => {
+  it('builds a structured prompt containing resume, job description, question, and history (default concise mode)', () => {
     const prompt = buildUserPrompt({
       resume: sampleResume,
       jobDescription: sampleJd,
@@ -29,8 +31,39 @@ describe('AnswerGenerationService & PromptBuilder (PRD Section 7 & 17.4)', () =>
     expect(prompt).toContain(sampleJd);
     expect(prompt).toContain('<conversation_context>');
     expect(prompt).toContain('How did you improve AI response latency?');
+    expect(prompt).toContain('Answer Mode: CONCISE');
     expect(INTERVIEW_SYSTEM_PROMPT).toContain('Never invent experience');
     expect(INTERVIEW_SYSTEM_PROMPT).toContain('60–90 words');
+    expect(getMaxOutputTokensForMode('concise')).toBe(320);
+  });
+
+  it('fine-tunes system and user prompts for detailed and STAR answer modes', () => {
+    const detailedSys = buildSystemPrompt('detailed');
+    const detailedUser = buildUserPrompt({
+      resume: sampleResume,
+      jobDescription: sampleJd,
+      question: 'Can you explain your architecture?',
+      answerMode: 'detailed',
+    });
+    expect(detailedSys).toContain('Selected Answer Mode: DETAILED');
+    expect(detailedSys).toContain('130–180 words');
+    expect(detailedUser).toContain('Answer Mode: DETAILED');
+    expect(getMaxOutputTokensForMode('detailed')).toBe(520);
+
+    const starSys = buildSystemPrompt('star');
+    const starUser = buildUserPrompt({
+      resume: sampleResume,
+      jobDescription: sampleJd,
+      question: 'What was your biggest technical challenge?',
+      answerMode: 'star',
+    });
+    expect(starSys).toContain('Selected Answer Mode: STAR FORMAT');
+    expect(starSys).toContain('**Situation:**');
+    expect(starSys).toContain('**Task:**');
+    expect(starSys).toContain('**Action:**');
+    expect(starSys).toContain('**Result:**');
+    expect(starUser).toContain('Answer Mode: STAR');
+    expect(getMaxOutputTokensForMode('star')).toBe(450);
   });
 
   it('sanitizes untrusted XML delimiter tags in user context to prevent prompt boundary escape', () => {

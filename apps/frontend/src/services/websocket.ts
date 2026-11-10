@@ -1,9 +1,14 @@
-import { AudioInputMode, LatencyMetrics } from '../types/interview';
+import {
+  AnswerMode,
+  AudioInputMode,
+  LatencyMetrics,
+} from '../types/interview';
 
 export interface StartSessionMessagePayload {
   resume: string;
   jobDescription: string;
   audioMode: AudioInputMode;
+  answerMode?: AnswerMode;
   mimeType?: string;
   sampleRate?: number;
 }
@@ -162,6 +167,13 @@ export class InterviewWebSocketService {
     });
   }
 
+  sendSetAnswerMode(answerMode: AnswerMode): void {
+    this.sendJson({
+      type: 'SET_ANSWER_MODE',
+      payload: { answerMode },
+    });
+  }
+
   sendAudioChunk(chunk: ArrayBuffer): void {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       this.socket.send(chunk);
@@ -172,10 +184,11 @@ export class InterviewWebSocketService {
     text: string,
     isFinal = true,
     speechFinal = true,
+    answerMode?: AnswerMode,
   ): void {
     this.sendJson({
       type: 'SIMULATE_SPEECH',
-      payload: { text, isFinal, speechFinal },
+      payload: { text, isFinal, speechFinal, answerMode },
     });
   }
 

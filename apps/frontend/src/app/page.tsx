@@ -9,6 +9,7 @@ import { QuestionPanel } from '../components/QuestionPanel';
 import { TranscriptPanel } from '../components/TranscriptPanel';
 import { useInterviewSocket } from '../hooks/useInterviewSocket';
 import {
+  AnswerMode,
   AudioInputMode,
   SAMPLE_JOB_DESCRIPTION,
   SAMPLE_RESUME,
@@ -20,6 +21,7 @@ export default function InterviewDashboardPage() {
     SAMPLE_JOB_DESCRIPTION,
   );
   const [audioMode, setAudioMode] = useState<AudioInputMode>('microphone');
+  const [answerMode, setAnswerMode] = useState<AnswerMode>('concise');
 
   const {
     status,
@@ -35,17 +37,24 @@ export default function InterviewDashboardPage() {
     startSession,
     stopSession,
     simulateQuestion,
+    updateAnswerMode,
     clearError,
   } = useInterviewSocket();
 
   const canStart =
     resume.trim().length > 0 && jobDescription.trim().length > 0;
 
+  const handleChangeAnswerMode = (mode: AnswerMode) => {
+    setAnswerMode(mode);
+    updateAnswerMode(mode);
+  };
+
   const handleStartListening = () => {
     void startSession({
       resume,
       jobDescription,
       audioMode,
+      answerMode,
     });
   };
 
@@ -54,6 +63,7 @@ export default function InterviewDashboardPage() {
       resume,
       jobDescription,
       audioMode,
+      answerMode,
     });
   };
 
@@ -80,6 +90,8 @@ export default function InterviewDashboardPage() {
         <AudioControls
           audioMode={audioMode}
           onChangeAudioMode={setAudioMode}
+          answerMode={answerMode}
+          onChangeAnswerMode={handleChangeAnswerMode}
           status={status}
           isCapturing={isCapturing}
           activeMimeType={activeMimeType}

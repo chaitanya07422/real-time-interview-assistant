@@ -9,6 +9,8 @@ export type AppStatus =
 
 export type AudioInputMode = 'microphone' | 'tab';
 
+export type AnswerMode = 'concise' | 'detailed' | 'star';
+
 export interface TranscriptSegment {
   id: string;
   text: string;
@@ -25,6 +27,7 @@ export interface DetectedQuestionItem {
   questionId: string;
   sequenceNumber: number;
   question: string;
+  answerMode: AnswerMode;
   detectedAt: number;
   status: 'thinking' | 'answering' | 'completed' | 'error';
   answer: string;
@@ -42,6 +45,7 @@ export interface CandidateContext {
   resume: string;
   jobDescription: string;
   audioMode: AudioInputMode;
+  answerMode: AnswerMode;
 }
 
 export const SAMPLE_RESUME = `Alex Rivera — Senior Full-Stack & AI Systems Engineer

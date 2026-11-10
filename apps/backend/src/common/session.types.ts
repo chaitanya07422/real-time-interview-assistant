@@ -1,4 +1,8 @@
-import { AudioInputMode, LatencyMetricsPayload } from './events.types';
+import {
+  AnswerMode,
+  AudioInputMode,
+  LatencyMetricsPayload,
+} from './events.types';
 
 export type SessionAudioState =
   | 'idle'
@@ -16,6 +20,7 @@ export interface TranscriptSegment {
 export interface DetectedQuestionRecord {
   questionId: string;
   question: string;
+  answerMode: AnswerMode;
   detectedAt: number;
   answer: string;
   completed: boolean;
@@ -33,6 +38,7 @@ export interface InterviewSessionState {
   resume: string;
   jobDescription: string;
   audioMode: AudioInputMode;
+  answerMode: AnswerMode;
   mimeType?: string;
   sampleRate?: number;
   audioState: SessionAudioState;
