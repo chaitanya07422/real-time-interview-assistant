@@ -33,7 +33,7 @@ describe('AnswerGenerationService & PromptBuilder (PRD Section 7 & 17.4)', () =>
     expect(prompt).toContain('How did you improve AI response latency?');
     expect(prompt).toContain('Answer Mode: CONCISE');
     expect(INTERVIEW_SYSTEM_PROMPT).toContain('Never invent experience');
-    expect(INTERVIEW_SYSTEM_PROMPT).toContain('60–90 words');
+    expect(INTERVIEW_SYSTEM_PROMPT).toContain('60-90 words');
     expect(getMaxOutputTokensForMode('concise')).toBe(320);
   });
 
@@ -45,8 +45,8 @@ describe('AnswerGenerationService & PromptBuilder (PRD Section 7 & 17.4)', () =>
       question: 'Can you explain your architecture?',
       answerMode: 'detailed',
     });
-    expect(detailedSys).toContain('Selected Answer Mode: DETAILED');
-    expect(detailedSys).toContain('130–180 words');
+    expect(detailedSys).toContain('ANSWER MODE: DETAILED');
+    expect(detailedSys).toContain('130-180 words');
     expect(detailedUser).toContain('Answer Mode: DETAILED');
     expect(getMaxOutputTokensForMode('detailed')).toBe(520);
 
@@ -57,7 +57,7 @@ describe('AnswerGenerationService & PromptBuilder (PRD Section 7 & 17.4)', () =>
       question: 'What was your biggest technical challenge?',
       answerMode: 'star',
     });
-    expect(starSys).toContain('Selected Answer Mode: STAR FORMAT');
+    expect(starSys).toContain('ANSWER MODE: STAR');
     expect(starSys).toContain('**Situation:**');
     expect(starSys).toContain('**Task:**');
     expect(starSys).toContain('**Action:**');
