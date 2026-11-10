@@ -1,0 +1,25 @@
+{
+  "name": "real-time-interview-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Real-Time AI Interview Assistant POC — Streaming Audio to STT (Deepgram), Question Detection, and Streaming LLM Answers (Google Gemini)",
+  "workspaces": [
+    "apps/backend",
+    "apps/frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm --workspace=apps/backend run start:dev",
+    "dev:frontend": "npm --workspace=apps/frontend run dev",
+    "build": "npm --workspace=apps/backend run build && npm --workspace=apps/frontend run build",
+    "build:backend": "npm --workspace=apps/backend run build",
+    "build:frontend": "npm --workspace=apps/frontend run build",
+    "start:backend": "npm --workspace=apps/backend run start:prod",
+    "start:frontend": "npm --workspace=apps/frontend run start",
+    "test": "npm --workspace=apps/backend run test",
+    "test:backend": "npm --workspace=apps/backend run test",
+    "lint": "npm --workspace=apps/backend run lint && npm --workspace=apps/frontend run lint"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
