@@ -53,10 +53,17 @@ export const INDIRECT_PROMPT_STARTER =
   /^(i'd\s+(like|love)\s+to\s+(hear|know|learn|understand)(\s+more)?\s+about|i\s+would\s+(like|love)\s+to\s+(hear|know|learn|understand)(\s+more)?\s+about|i'm\s+(curious|interested)\s+(to\s+(hear|know|learn)|about)|i\s+am\s+(curious|interested)\s+(to\s+(hear|know|learn)|about)|let's\s+(talk|hear)\s+about\s+your|let's\s+discuss\s+your)\b/i;
 
 /**
- * Trailing tokens that indicate the speaker is still mid-sentence / incomplete phrase
+ * Trailing tokens or incomplete stem phrases that indicate the speaker is still mid-sentence
  */
 export const INCOMPLETE_TRAILING_WORD =
-  /\b(and|or|but|because|so|that|which|who|where|when|while|if|although|about|with|for|from|into|onto|to|of|in|on|by|at|the|a|an|your|my|our|their|can\s+you|could\s+you|how\s+did|what\s+is|what\s+was|tell\s+me)\s*[.]{0,3}$/i;
+  /\b(and|or|but|because|so|that|which|who|where|when|while|if|although|about|with|for|from|into|onto|to|of|in|on|by|at|the|a|an|your|my|our|their|this|these|those|some|any|such|as|like|have|has|had|was|were|is|are|been|being|do|does|did|can|could|would|should|will|shall|may|might|must|can\s+you|could\s+you|how\s+did|what\s+is|what\s+was|tell\s+me)\s*[.?!]{0,3}$/i;
+
+/**
+ * Incomplete introductory stems like "Tell me about a time" or "Give me an example"
+ * where the speaker paused before stating the actual topic/clause.
+ */
+export const INCOMPLETE_QUESTION_STEM =
+  /^(?:can\s+you\s+|could\s+you\s+|would\s+you\s+)?(?:tell\s+me|give\s+me|share|describe|walk\s+me\s+through|talk\s+about|explain)\s+(?:about\s+)?(?:a|an|the|some|your)?\s*(?:time|example|situation|scenario|instance|story|case|moment)?\s*(?:where|when|that|in\s+which|of\s+when)?\s*(?:you|your|we)?\s*(?:have|had|were|did)?\s*[.?!]*$/i;
 
 export function extractWords(text: string): string[] {
   return text
@@ -95,6 +102,9 @@ export function looksIncompletePhrase(text: string): boolean {
   }
   const words = extractWords(trimmed);
   if (words.length < 3) {
+    return true;
+  }
+  if (INCOMPLETE_QUESTION_STEM.test(trimmed)) {
     return true;
   }
   if (!trimmed.endsWith('?') && INCOMPLETE_TRAILING_WORD.test(trimmed)) {
@@ -148,6 +158,17 @@ export function evaluateSingleSentence(sentence: string): string | null {
       return `${text}.`;
     }
     return text;
+  }
+
+  // Check if the sentence has an introductory statement followed by a comma/dash and a question clause
+  // e.g. "I see you worked on NestJS, can you explain how you handled scaling?"
+  const embeddedMatch = text.match(
+    /[,;—-]\s*((?:what|why|how|when|where|who|which|can\s+you|could\s+you|would\s+you|did\s+you|do\s+you|have\s+you|tell\s+me|walk\s+me\s+through|explain|describe)\b.+)$/i,
+  );
+  if (embeddedMatch && embeddedMatch[1]) {
+    const clause =
+      embeddedMatch[1].charAt(0).toUpperCase() + embeddedMatch[1].slice(1);
+    return evaluateSingleSentence(clause);
   }
 
   return null;

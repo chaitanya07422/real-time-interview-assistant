@@ -21,6 +21,7 @@ interface SessionDetectionBuffer {
   firstSegmentAt: number | null;
   lastSegmentAt: number | null;
   silenceTimer: NodeJS.Timeout | null;
+  incompleteExpiryTimer: NodeJS.Timeout | null;
   questionCounter: number;
   processedQuestions: Array<{
     normalized: string;
@@ -29,6 +30,8 @@ interface SessionDetectionBuffer {
   }>;
   lastTranscriptSegmentNormalized: string;
 }
+
+const INCOMPLETE_CONTINUATION_WINDOW_MS = 10_000;
 
 @Injectable()
 export class QuestionDetectionService {
@@ -52,6 +55,7 @@ export class QuestionDetectionService {
         firstSegmentAt: null,
         lastSegmentAt: null,
         silenceTimer: null,
+        incompleteExpiryTimer: null,
         questionCounter: 0,
         processedQuestions: [],
         lastTranscriptSegmentNormalized: '',
@@ -59,6 +63,22 @@ export class QuestionDetectionService {
       this.sessions.set(sessionId, session);
     }
     return session;
+  }
+
+  private joinSegments(segments: string[]): string {
+    if (segments.length === 0) return '';
+    if (segments.length === 1) return segments[0].trim();
+
+    let combined = segments[0].trim();
+    for (let i = 1; i < segments.length; i++) {
+      const nextSeg = segments[i].trim();
+      if (!nextSeg) continue;
+      if (looksIncompletePhrase(combined)) {
+        combined = combined.replace(/[.?!]+$/, '').trim();
+      }
+      combined = `${combined} ${nextSeg}`;
+    }
+    return combined.replace(/\s+/g, ' ').trim();
   }
 
   ingestFinalTranscript(
@@ -88,6 +108,15 @@ export class QuestionDetectionService {
     }
     session.lastTranscriptSegmentNormalized = normalizedSegment;
 
+    if (
+      session.segments.length > 0 &&
+      session.lastSegmentAt !== null &&
+      now - session.lastSegmentAt > INCOMPLETE_CONTINUATION_WINDOW_MS
+    ) {
+      session.segments = [];
+      session.firstSegmentAt = null;
+    }
+
     session.segments.push(trimmed);
     if (session.firstSegmentAt === null) {
       session.firstSegmentAt = now;
@@ -95,8 +124,9 @@ export class QuestionDetectionService {
     session.lastSegmentAt = now;
 
     this.clearSilenceTimer(session);
+    this.clearIncompleteExpiryTimer(session);
 
-    const accumulatedText = session.segments.join(' ').trim();
+    const accumulatedText = this.joinSegments(session.segments);
     const silenceMs =
       options?.silenceThresholdMs ?? this.defaultSilenceThresholdMs;
 
@@ -136,9 +166,27 @@ export class QuestionDetectionService {
 
     this.clearSilenceTimer(session);
 
-    const rawUtterance = session.segments.join(' ').trim();
+    const rawUtterance = this.joinSegments(session.segments);
     const audioEndpointAt = session.lastSegmentAt ?? evaluatedAt;
 
+    if (looksIncompletePhrase(rawUtterance)) {
+      this.logger.debug(
+        `Holding incomplete utterance in session ${sessionId} awaiting continuation: "${rawUtterance}"`,
+      );
+      this.clearIncompleteExpiryTimer(session);
+      session.incompleteExpiryTimer = setTimeout(() => {
+        const current = this.sessions.get(sessionId);
+        if (current) {
+          current.segments = [];
+          current.firstSegmentAt = null;
+          current.lastSegmentAt = null;
+          current.lastTranscriptSegmentNormalized = '';
+        }
+      }, INCOMPLETE_CONTINUATION_WINDOW_MS);
+      return null;
+    }
+
+    this.clearIncompleteExpiryTimer(session);
     session.segments = [];
     session.firstSegmentAt = null;
     session.lastSegmentAt = null;
@@ -225,10 +273,18 @@ export class QuestionDetectionService {
     }
   }
 
+  private clearIncompleteExpiryTimer(session: SessionDetectionBuffer): void {
+    if (session.incompleteExpiryTimer) {
+      clearTimeout(session.incompleteExpiryTimer);
+      session.incompleteExpiryTimer = null;
+    }
+  }
+
   clearSession(sessionId: string): void {
     const session = this.sessions.get(sessionId);
     if (session) {
       this.clearSilenceTimer(session);
+      this.clearIncompleteExpiryTimer(session);
       this.sessions.delete(sessionId);
     }
   }

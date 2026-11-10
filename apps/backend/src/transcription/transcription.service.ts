@@ -46,8 +46,8 @@ export class TranscriptionService {
       smart_format: 'true',
       punctuate: 'true',
       interim_results: 'true',
-      endpointing: '350',
-      utterance_end_ms: '1000',
+      endpointing: '600',
+      utterance_end_ms: '1200',
       vad_events: 'true',
     });
 

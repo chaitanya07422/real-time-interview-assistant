@@ -113,5 +113,38 @@ describe('QuestionDetectionService (PRD Section 17.3 & FR-05)', () => {
         { speechFinal: false, silenceThresholdMs: 50, timestamp: Date.now() },
       );
     });
+
+    it('holds incomplete mid-sentence utterances across a pause and merges the continuation segment', () => {
+      const detected: string[] = [];
+
+      // First segment ends with "the" (speaker paused for 5 seconds mid-sentence)
+      service.ingestFinalTranscript(
+        'session-split',
+        'Tell me the time where you have handled the',
+        (res) => detected.push(res.question),
+        { speechFinal: true, silenceThresholdMs: 20, timestamp: 1000 },
+      );
+
+      // Even if UtteranceEnd fires during the pause, it should hold the incomplete segment
+      service.handleUtteranceEnd(
+        'session-split',
+        (res) => detected.push(res.question),
+        2000,
+      );
+      expect(detected).toHaveLength(0);
+
+      // 5 seconds later, the speaker finishes the sentence
+      service.ingestFinalTranscript(
+        'session-split',
+        'order responsibilities.',
+        (res) => detected.push(res.question),
+        { speechFinal: true, timestamp: 6000 },
+      );
+
+      expect(detected).toEqual([
+        'Tell me the time where you have handled the order responsibilities.',
+      ]);
+      service.clearSession('session-split');
+    });
   });
 });
