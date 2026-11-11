@@ -93,52 +93,97 @@ npm run build
 
 ## 2. System Architecture & End-to-End Data Flow
 
-### Architecture Diagram
+### System Architecture Diagram (Mermaid)
+```mermaid
+flowchart TB
+    subgraph Client["Browser Client (Next.js 15 / React 19)"]
+        direction TB
+        CF["ContextForm<br/>(Resume & Job Description)"]
+        AC["AudioControls<br/>(Mic / Tab Audio + Concise / Detailed / STAR)"]
+        UAC["useAudioCapture Hook<br/>(getUserMedia / getDisplayMedia)<br/>MediaRecorder (250ms binary chunks)"]
+        WSSVC["InterviewWebSocketService<br/>(Binary ArrayBuffer Up / JSON Events Down)<br/>+ Early Chunk #0 Header Queue"]
+        TP["TranscriptPanel<br/>(Live Interim + Confirmed Final)"]
+        QP["QuestionPanel<br/>(Detected Question + History)"]
+        AP["AnswerPanel<br/>(Streamed Answer + Detection/TTFT/E2E Metrics)"]
+
+        CF --> WSSVC
+        AC --> UAC
+        UAC -->|"250ms ArrayBuffer"| WSSVC
+        WSSVC -->|"TRANSCRIPT_UPDATE / FINAL"| TP
+        WSSVC -->|"QUESTION_DETECTED"| QP
+        WSSVC -->|"ANSWER_CHUNK / LATENCY_METRICS"| AP
+    end
+
+    subgraph Backend["Backend Server (NestJS 11 + Fastify + Native ws)"]
+        direction TB
+        GW["InterviewGateway<br/>(WebSocket Router & Origin Guard)"]
+        SM["SessionManagerService<br/>(Session State, Q&A Memory, AbortController)"]
+        MS["MetricsService<br/>(Detection, TTFT, Total & E2E Telemetry)"]
+        AS["AudioService<br/>(MIME / SampleRate Validation & 512KB Guard)"]
+        TS["TranscriptionService<br/>(60-Chunk Pre-Open Queue, WebM Header Cache,<br/>8s KeepAlive & Auto-Reconnect)"]
+        QD["QuestionDetectionService<br/>(5-Stage Hybrid State Machine:<br/>Interim Deferral, 10s Incomplete Hold,<br/>Linguistic Classifier & Jaccard Dedup)"]
+        AG["AnswerGenerationService + PromptBuilder<br/>(XML Sanitization, Grounding Rules,<br/>15s Timeout & Client Cache)"]
+
+        GW <--> SM
+        GW <--> MS
+        GW -->|"Binary Audio Chunk"| AS
+        AS --> TS
+        TS -->|"Interim / Final / UtteranceEnd"| GW
+        GW -->|"Final + Interim Activity"| QD
+        QD -->|"DetectedQuestionResult"| GW
+        GW -->|"PromptContext + AbortSignal"| AG
+        AG -->|"Streamed Tokens"| GW
+    end
+
+    subgraph External["External Real-Time AI Providers"]
+        direction TB
+        DG[("Deepgram Live STT API<br/>wss://api.deepgram.com/v1/listen<br/>(model=nova-3, endpointing=600)")]
+        GM[("Google Gemini Streaming API<br/>(gemini-2.5-flash,<br/>thinkingBudget: 0, temp: 0.3)")]
+    end
+
+    WSSVC <==>|"Single Duplex WebSocket (ws://)"| GW
+    TS <==>|"Persistent WSS Stream"| DG
+    AG <==>|"SSE Token Stream"| GM
 ```
-+-----------------------------------------------------------------------------------+
-|                        BROWSER CLIENT (Next.js 15 / React 19)                     |
-|                                                                                   |
-|  [ContextForm: Resume + JD]   [AudioControls: Mic/Tab + Mode (Concise/STAR)]      |
-|                                       |                                           |
-|                 useAudioCapture (getUserMedia / getDisplayMedia)                  |
-|                 MediaRecorder (250ms timeslice -> ArrayBuffer)                    |
-|                 Pre-Session Early Chunk Queue (preserves Chunk #0 EBML header)    |
-|                                       |                                           |
-|  [TranscriptPanel] <==== Single Duplex WebSocket (ws://) ====> [QuestionPanel]    |
-|  (Interim + Final)      (Binary Audio Up / JSON Events Down)   [AnswerPanel]      |
-+---------------------------------------|-------------------------------------------+
-                                        |
-                                        v
-+-----------------------------------------------------------------------------------+
-|                  BACKEND SERVER (NestJS 11 + Fastify + Native ws)                 |
-|                                                                                   |
-|  [InterviewGateway] <---> [SessionManagerService] <---> [MetricsService]          |
-|         |                 (Per-session state, history,   (Detection, TTFT, Total, |
-|         |                  active AbortController)        and E2E ms telemetry)   |
-|         v                                                                         |
-|  [AudioService] (MIME/SampleRate validation, 512KB frame guard)                   |
-|         |                                                                         |
-|         v                                                                         |
-|  [TranscriptionService] === Persistent WSS ===> Deepgram Live API (nova-3)        |
-|   - Pre-open bounded ring buffer (60 chunks)    - smart_format, punctuate,        |
-|   - WebM header caching & auto-reconnect          numerals, interim_results       |
-|   - 8s KeepAlive heartbeat                      - endpointing=600, vad_events     |
-|         |                                                                         |
-|         | (Interim transcripts reset silence timer; Final transcripts accumulate) |
-|         v                                                                         |
-|  [QuestionDetectionService] (5-Stage Stateful Hybrid Detection Engine)            |
-|   1. Segment dedup & interim-speech silence timer deferral                        |
-|   2. Mid-sentence incomplete stem hold buffer (10s continuation window)           |
-|   3. Sentence boundary splitter & conversational filler prefix stripper           |
-|   4. Linguistic classifier (Interrogative / Modal / Imperative / Indirect)        |
-|   5. Greeting & mic-check filter + Jaccard similarity (>= 0.85) deduplication     |
-|         |                                                                         |
-|         | Emits QUESTION_DETECTED (question-001) + Aborts stale LLM stream        |
-|         v                                                                         |
-|  [AnswerGenerationService] + [PromptBuilder] === Streaming ===> Google Gemini API |
-|   - XML tag sanitization (<candidate_resume>, <job_description>) (gemini-2.5-flash|
-|   - Injects last 3 Q&A pairs for follow-up continuity            thinkingBudget:0)|
-+-----------------------------------------------------------------------------------+
+
+### Real-Time Sequence Flow (Mermaid)
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User as Browser (MediaRecorder / UI)
+    participant GW as NestJS InterviewGateway
+    participant DG as Deepgram Nova-3 (WSS)
+    participant QD as QuestionDetectionService
+    participant GM as Gemini 2.5 Flash
+
+    User->>GW: START_SESSION (resume, jobDescription, audioMode, answerMode)
+    GW-->>User: SESSION_READY (sessionId)
+    GW->>DG: Open WSS Stream (model=nova-3, interim_results=true, endpointing=600)
+
+    loop Every 250ms while speaking
+        User->>GW: Binary Audio Chunk (ArrayBuffer)
+        GW->>DG: Forward Binary Buffer (Chunk #0 header preserved)
+        DG-->>GW: Results (is_final=false, interim text)
+        GW->>QD: notifyInterimTranscript() (resets 900ms silence timer)
+        GW-->>User: TRANSCRIPT_UPDATE (live interim preview)
+    end
+
+    DG-->>GW: Results (is_final=true, speech_final=true)
+    GW-->>User: TRANSCRIPT_FINAL (confirmed segment)
+    GW->>QD: ingestFinalTranscript(text, speechFinal=true)
+    Note over QD: Hold if incomplete stem (10s window)<br/>Ignore greetings/fillers<br/>Classify & deduplicate (Jaccard < 0.85)
+    QD-->>GW: DetectedQuestionResult (question-001)
+    GW-->>User: QUESTION_DETECTED (questionId, question)
+
+    GW->>GM: generateContentStream (Resume + JD + Last 3 Q&As + Question)
+    GW-->>User: ANSWER_START (questionId)
+    loop Token-by-token streaming
+        GM-->>GW: Stream chunk text
+        GW-->>User: ANSWER_CHUNK (questionId, text)
+    end
+    GM-->>GW: Stream complete
+    GW-->>User: ANSWER_COMPLETE (questionId, durationMs)
+    GW-->>User: LATENCY_METRICS (Detection, TTFT, Total, E2E ms)
 ```
 
 ### Complete Execution Flow & Latency Budget (`< 3.0s` Target)
