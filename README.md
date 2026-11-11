@@ -255,16 +255,16 @@ We built a **5-stage deterministic state machine** (`QuestionDetectionService` +
 
 ## 6. Top 3 Production Risks & Mitigations (≤ 300 Words)
 
-### 1. Audio Privacy, Two-Party Consent, and Data Security
-Capturing live interview audio introduces strict legal and privacy obligations (e.g., GDPR, CCPA, and two-party recording consent laws) alongside risks of exposing sensitive PII in resumes and transcripts.
-- **Mitigation:** Enforce explicit user consent workflows and visible recording indicators; scrub PII before external API transmission; enforce TLS/WSS encryption in transit and zero-retention flags (`mip_opt_out` on Deepgram, zero data retention on Gemini); and authenticate WebSocket sessions via short-lived JWTs with strict per-tenant isolation.
+### 1. Speaker Confusion, Acoustic Bleed, and False Turn Detection
+In live interviews, candidates and interviewers interrupt each other, pause mid-thought, or speak over laptop speakers. A single-channel audio pipeline without speaker separation will transcribe the candidate's own voice—triggering answers to the candidate's own clarifying questions—or fire prematurely during an interviewer's thinking pause.
+- **Mitigation:** Isolate audio into two distinct channels (`getDisplayMedia` tab audio = Interviewer; `getUserMedia` mic = Candidate) combined with Deepgram speaker diarization (`diarize=true`), muting question detection whenever the candidate's mic is active. Pair fast acoustic endpointing with an async micro-classifier (`gemini-2.5-flash-lite`) to resolve ambiguous pauses without slowing down clear questions.
 
-### 2. Real-Time Reliability, Latency Spikes, and Provider Outages
-The sub-3-second Time-to-First-Token (TTFT) target depends on persistent stateful WebSockets and two external cloud providers (Deepgram and Gemini). Network jitter, provider rate limits, or regional outages can break active interviews.
-- **Mitigation:** Deploy multi-provider failover (e.g., AssemblyAI/Whisper fallback for STT; OpenAI/Anthropic fallback for LLM) behind circuit breakers and health checks; move session state to Redis for seamless horizontal scaling and stateful WebSocket recovery; and colocate backend edge nodes near STT/LLM regions.
+### 2. P99 Tail-Latency (>3s) and Stateful Audio Stream Fragility
+Hitting sub-3-second TTFT at P99 across thousands of 45-minute sessions is threatened by stateful WebM containers (where only `chunk #0` holds the EBML header, making mid-session socket drops undecodable) and upstream STT/LLM latency spikes.
+- **Mitigation:** Replace `MediaRecorder` WebM blobs with a WebAudio `AudioWorklet` streaming stateless `16kHz` Linear16 PCM frames so any worker or backup STT provider (AssemblyAI fallback) can take over mid-sentence without replaying container headers. Warm context early by running speculative retrieval on *interim* transcripts while the interviewer is still speaking, backed by multi-provider LLM circuit breakers.
 
-### 3. LLM Hallucinations, Prompt Injection, and Answer Quality
-Under low-latency constraints, the LLM may fabricate candidate experience, produce overly verbose text that sounds unnatural when spoken, or fall victim to prompt injection embedded in pasted job descriptions.
-- **Mitigation:** Isolate untrusted resume/job-description inputs using strict XML delimiters and input sanitization; pre-index candidate resumes into structured claims for retrieval-augmented grounding; enforce post-generation citation/fact checks; and continuously evaluate output conciseness and faithfulness using automated LLM-as-a-judge benchmarks.
+### 3. Unverifiable Hallucinations, Prompt Injection, and Recording Compliance
+If the LLM fabricates a metric or tool the candidate cannot defend 10 seconds later on a follow-up question, the candidate's credibility collapses. Streaming live third-party voice also triggers two-party recording consent laws and PII exposure risks.
+- **Mitigation:** Pre-index the candidate's resume into verified claim chunks at session start so answers cite only grounded facts (with honest pivot phrasing for missing skills); sandbox untrusted job descriptions in sanitized XML tags; and enforce explicit consent, PII scrubbing, short-lived WebSocket JWTs, and zero-retention provider flags (`mip_opt_out=true`).
 
 
