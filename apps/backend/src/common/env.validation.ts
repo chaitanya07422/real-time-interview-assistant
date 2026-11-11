@@ -4,6 +4,7 @@ export interface ValidatedEnvConfig {
   PORT: number;
   FRONTEND_ORIGIN: string;
   DEEPGRAM_API_KEY: string;
+  DEEPGRAM_MODEL: string;
   GEMINI_API_KEY: string;
   GEMINI_MODEL: string;
   QUESTION_SILENCE_THRESHOLD_MS: number;
@@ -41,6 +42,10 @@ export function validateEnvironment(
     );
   }
 
+  const deepgramModel = String(
+    config.DEEPGRAM_MODEL ?? process.env.DEEPGRAM_MODEL ?? 'nova-3',
+  ).trim();
+
   const geminiApiKey = String(
     config.GEMINI_API_KEY ?? process.env.GEMINI_API_KEY ?? '',
   ).trim();
@@ -73,6 +78,7 @@ export function validateEnvironment(
     PORT: port,
     FRONTEND_ORIGIN: frontendOrigin,
     DEEPGRAM_API_KEY: deepgramApiKey,
+    DEEPGRAM_MODEL: deepgramModel || 'nova-3',
     GEMINI_API_KEY: geminiApiKey,
     GEMINI_MODEL:
       !geminiModel || geminiModel === 'your_supported_gemini_model'

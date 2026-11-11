@@ -15,7 +15,7 @@ A real-time web application that assists candidates during virtual technical, be
   - **Mode A (Browser Tab Audio):** Captures meeting tab audio via `navigator.mediaDevices.getDisplayMedia()`.
   - **Mode B (Microphone Audio):** Captures microphone audio via `navigator.mediaDevices.getUserMedia()` with echo cancellation and noise suppression.
 - **Binary WebSocket Audio Streaming (FR-03):** Streams raw 250ms binary `ArrayBuffer` chunks from browser `MediaRecorder` to the NestJS Fastify backend without base64 bloat, backed by a bounded pre-open buffer that preserves container headers.
-- **Real-Time Speech-to-Text (FR-04):** Integrates Deepgram Nova-2 Live Streaming with visual distinction between `TRANSCRIPT_UPDATE` (interim) and `TRANSCRIPT_FINAL` (confirmed) segments.
+- **Real-Time Speech-to-Text (FR-04):** Integrates Deepgram Nova-3 Live Streaming (`nova-3`, Deepgram's highest-accuracy flagship model) with visual distinction between `TRANSCRIPT_UPDATE` (interim) and `TRANSCRIPT_FINAL` (confirmed) segments.
 - **5-Stage Hybrid Question Detection Engine (FR-05):** Combines Deepgram `speech_final` and `UtteranceEnd` signals, configurable silence timers (`800–1200ms`), sentence segmentation, linguistic question/imperative heuristics, greeting/filler filtering, and Jaccard similarity deduplication.
 - **Grounded Streaming Answer Generation (FR-06 & FR-07):** Streams concise (60–90 words / 3–6 bullet points), first-person answers from Google Gemini strictly grounded in the candidate's resume and job description, with automatic `AbortController` cancellation if a new question supersedes an in-flight generation.
 - **Latency Metrics & Reliability:** Measures `questionDetectionMs`, `timeToFirstTokenMs` (TTFT), and `totalGenerationMs` per question, and implements bounded exponential backoff WebSocket reconnection.
@@ -28,7 +28,7 @@ A real-time web application that assists candidates during virtual technical, be
 |---|---|
 | **Frontend** | Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS v4, Browser MediaDevices & MediaRecorder APIs, Native WebSocket API |
 | **Backend** | Node.js, NestJS 11, Fastify Adapter, `ws` WebSocket Server |
-| **Speech-to-Text** | Deepgram Streaming API (`@deepgram/sdk`, `nova-2`) |
+| **Speech-to-Text** | Deepgram Live Streaming WebSocket API (`wss://api.deepgram.com/v1/listen`, `nova-3`) |
 | **LLM** | Google Gemini Streaming API (`@google/genai`, configurable via `GEMINI_MODEL`) |
 | **Testing** | Jest, `@nestjs/testing`, End-to-End WebSocket Pipeline Tests |
 
@@ -98,6 +98,7 @@ Edit `.env`:
 PORT=4000
 FRONTEND_ORIGIN=http://localhost:3000
 DEEPGRAM_API_KEY=your_deepgram_api_key
+DEEPGRAM_MODEL=nova-3
 GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL=gemini-2.5-flash
 QUESTION_SILENCE_THRESHOLD_MS=900
@@ -143,8 +144,8 @@ npm run build
 - **Container Header Preservation:** When using containerized formats (`audio/webm;codecs=opus`), the first chunk contains the EBML/WebM header. `TranscriptionService` maintains a bounded queue (`MAX_PENDING_CHUNKS = 60`) while the Deepgram socket handshake completes, flushing chunk `#0` onward in exact order upon `LiveTranscriptionEvents.Open`.
 
 ### 5-Stage Hybrid Question Detection Engine
-1. **Transcript Accumulation:** Final segments (`is_final: true`) are accumulated per session while ignoring back-to-back duplicate STT emissions.
-2. **Speech Completion:** Evaluation triggers immediately when Deepgram signals `speech_final: true` (provided the phrase does not end with a dangling conjunction/preposition) or when `UtteranceEnd` / the configurable silence timer (`900ms` default) fires.
+1. **Transcript Accumulation & Interim Activity Tracking:** Final segments (`is_final: true`) are accumulated per session while ignoring back-to-back duplicate STT emissions. Incoming interim transcripts (`is_final: false`) actively reset pending silence timers so multi-clause questions are never cut off while the interviewer is still speaking.
+2. **Speech Completion & Incomplete-Stem Holding:** Evaluation triggers immediately when Deepgram signals `speech_final: true` (provided the phrase does not end with a dangling conjunction/preposition or incomplete stem) or when `UtteranceEnd` / the configurable silence timer (`900ms` default) fires. Mid-sentence pauses are held up to `10s` for continuation, whereas 1–2 word greetings/fillers (`"Hello."`, `"Sure."`, `"Got it."`) are immediately recognized as complete non-questions and discarded.
 3. **Sentence Segmentation & Prefix Stripping:** Multi-sentence utterances (e.g., *"Okay, let's start. Can you tell me about yourself?"*) are split on sentence boundaries; conversational prefixes are stripped so *"Okay, let's start."* is discarded and *"Can you tell me about yourself?"* is extracted.
 4. **Linguistic Classification & Validation:**
    - **Accepts:** Interrogatives (`what`, `why`, `how`, `when`, `where`, `who`, `which`), auxiliary questions (`can you`, `could you`, `would you`, `have you`, `did you`), imperative prompts without question marks (`tell me about`, `walk me through`, `explain`, `describe`, `share an example`), and indirect prompts (`I'd love to hear about`).

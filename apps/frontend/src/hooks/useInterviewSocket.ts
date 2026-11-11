@@ -71,11 +71,16 @@ export function useInterviewSocket() {
         setStatus('Thinking');
 
         setQuestions((prev) => {
-          if (prev.some((q) => q.questionId === questionId)) {
-            return prev;
+          const settledPrev = prev.map((q) =>
+            q.status === 'thinking' || q.status === 'answering'
+              ? { ...q, status: 'completed' as const }
+              : q,
+          );
+          if (settledPrev.some((q) => q.questionId === questionId)) {
+            return settledPrev;
           }
           return [
-            ...prev,
+            ...settledPrev,
             {
               questionId,
               sequenceNumber: seq,
@@ -135,11 +140,11 @@ export function useInterviewSocket() {
       case 'LATENCY_METRICS': {
         const metrics = event.payload;
         setLatestLatency(metrics);
-        const currentQId = activeQuestionIdRef.current;
-        if (currentQId) {
+        const targetQId = metrics.questionId ?? activeQuestionIdRef.current;
+        if (targetQId) {
           setQuestions((prev) =>
             prev.map((q) =>
-              q.questionId === currentQId ? { ...q, latency: metrics } : q,
+              q.questionId === targetQId ? { ...q, latency: metrics } : q,
             ),
           );
         }
@@ -153,6 +158,13 @@ export function useInterviewSocket() {
           message,
           recoverable: true,
         });
+        setQuestions((prev) =>
+          prev.map((q) =>
+            q.status === 'thinking' || q.status === 'answering'
+              ? { ...q, status: q.answer ? 'completed' : 'error' }
+              : q,
+          ),
+        );
         setStatus('Error');
         break;
       }
@@ -196,6 +208,12 @@ export function useInterviewSocket() {
       setStatus('Connecting');
 
       try {
+        if (wsRef.current) {
+          wsRef.current.sendStopSession();
+          wsRef.current.disconnect();
+          wsRef.current = null;
+        }
+
         const ws = new InterviewWebSocketService();
         wsRef.current = ws;
 
@@ -227,9 +245,18 @@ export function useInterviewSocket() {
           },
         });
 
+        let sessionStarted = false;
+        const earlyChunks: ArrayBuffer[] = [];
+
         const audioMeta = await startCapture({
           mode: context.audioMode,
-          onAudioChunk: (chunk) => wsRef.current?.sendAudioChunk(chunk),
+          onAudioChunk: (chunk) => {
+            if (!sessionStarted) {
+              earlyChunks.push(chunk);
+              return;
+            }
+            wsRef.current?.sendAudioChunk(chunk);
+          },
           onStreamInterrupted: (reason) => {
             wsRef.current?.sendStopSession();
             wsRef.current?.disconnect();
@@ -251,6 +278,13 @@ export function useInterviewSocket() {
           mimeType: audioMeta.mimeType,
           sampleRate: audioMeta.sampleRate,
         });
+        sessionStarted = true;
+        while (earlyChunks.length > 0) {
+          const early = earlyChunks.shift();
+          if (early) {
+            ws.sendAudioChunk(early);
+          }
+        }
         answerModeRef.current = context.answerMode;
       } catch (err: unknown) {
         stopCapture();
@@ -284,7 +318,8 @@ export function useInterviewSocket() {
       }
 
       try {
-        if (!wsRef.current) {
+        if (!wsRef.current || !wsRef.current.isConnected()) {
+          wsRef.current?.disconnect();
           setStatus('Connecting');
           const ws = new InterviewWebSocketService();
           wsRef.current = ws;

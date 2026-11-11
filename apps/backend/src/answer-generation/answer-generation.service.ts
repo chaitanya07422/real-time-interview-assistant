@@ -15,12 +15,25 @@ export interface StreamAnswerCallbacks {
   onError: (code: string, message: string) => void;
 }
 
+const LLM_STREAM_TIMEOUT_MS = 15_000;
+
 @Injectable()
 export class AnswerGenerationService {
   private readonly logger = new Logger(AnswerGenerationService.name);
+  private cachedClient: { apiKey: string; client: GoogleGenAI } | null = null;
 
   private getApiKey(): string {
     return (process.env.GEMINI_API_KEY ?? '').trim();
+  }
+
+  private getClient(apiKey: string): GoogleGenAI {
+    if (!this.cachedClient || this.cachedClient.apiKey !== apiKey) {
+      this.cachedClient = {
+        apiKey,
+        client: new GoogleGenAI({ apiKey }),
+      };
+    }
+    return this.cachedClient.client;
   }
 
   private getModelName(): string {
@@ -59,8 +72,18 @@ export class AnswerGenerationService {
 
     callbacks.onStart?.();
 
+    const timeoutController = new AbortController();
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      timeoutController.abort();
+    }, LLM_STREAM_TIMEOUT_MS);
+
+    const onExternalAbort = () => timeoutController.abort();
+    abortSignal?.addEventListener('abort', onExternalAbort, { once: true });
+
     try {
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = this.getClient(apiKey);
       const isGemini25 = model.includes('2.5');
       const responseStream = await ai.models.generateContentStream({
         model,
@@ -75,7 +98,7 @@ export class AnswerGenerationService {
           temperature: 0.3,
           maxOutputTokens,
           ...(isGemini25 ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-          abortSignal,
+          abortSignal: timeoutController.signal,
         },
       });
 
@@ -83,6 +106,9 @@ export class AnswerGenerationService {
         if (abortSignal?.aborted) {
           this.logger.debug('Answer generation aborted mid-stream.');
           return;
+        }
+        if (timedOut) {
+          throw new Error('Gemini streaming request timed out.');
         }
 
         const text = chunk.text ?? '';
@@ -103,8 +129,11 @@ export class AnswerGenerationService {
         return;
       }
 
-      const errMessage =
-        error instanceof Error ? error.message : 'Unknown Gemini API error';
+      const errMessage = timedOut
+        ? `Gemini API did not respond within ${LLM_STREAM_TIMEOUT_MS / 1000}s.`
+        : error instanceof Error
+          ? error.message
+          : 'Unknown Gemini API error';
       this.logger.error(`Gemini streaming error: ${errMessage}`);
 
       const lower = errMessage.toLowerCase();
@@ -139,6 +168,9 @@ export class AnswerGenerationService {
         'LLM_GENERATION_FAILED',
         `Failed to generate interview answer: ${errMessage}`,
       );
+    } finally {
+      clearTimeout(timeoutId);
+      abortSignal?.removeEventListener('abort', onExternalAbort);
     }
   }
 }

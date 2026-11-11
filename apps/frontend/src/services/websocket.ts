@@ -204,6 +204,12 @@ export class InterviewWebSocketService {
     }
   }
 
+  isConnected(): boolean {
+    return (
+      this.socket !== null && this.socket.readyState === WebSocket.OPEN
+    );
+  }
+
   disconnect(): void {
     this.intentionalClose = true;
     this.clearReconnectTimer();

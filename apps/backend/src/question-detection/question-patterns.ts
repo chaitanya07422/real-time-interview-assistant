@@ -26,7 +26,7 @@ export const FILLER_OR_TRANSITION_PATTERNS: RegExp[] = [
  * Leading conversational prefixes that can precede a valid question within the same sentence
  */
 export const LEADING_FILLER_PREFIX =
-  /^(?:(?:okay|ok|alright|all\s+right|so|well|great|awesome|perfect|thank\s+you|thanks|now|first(?:\s+of\s+all)?|to\s+start(?:\s+off)?|let's\s+start)\b[\s,.:;-]*)+/i;
+  /^(?:(?:hello|hi|hey|okay|ok|alright|all\s+right|sure|got\s+it|i\s+see|sounds\s+good|makes\s+sense|understood|right|yeah|yes|yep|so|well|great|awesome|perfect|thank\s+you|thanks|now|first(?:\s+of\s+all)?|to\s+start(?:\s+off)?|let's\s+start)\b[\s,.:;-]*)+/i;
 
 /**
  * Direct interrogative question starters
@@ -38,19 +38,19 @@ export const INTERROGATIVE_STARTER =
  * Modal / auxiliary question starters
  */
 export const AUXILIARY_QUESTION_STARTER =
-  /^(can\s+you|could\s+you|would\s+you|will\s+you|have\s+you(\s+ever)?|did\s+you|do\s+you|are\s+you|were\s+you|is\s+there|are\s+there|was\s+there|should\s+we|may\s+i\s+ask|might\s+you)\b/i;
+  /^(can\s+(you|we)|could\s+(you|we)|would\s+you|will\s+you|have\s+you(\s+ever)?|did\s+you|do\s+you|are\s+you|were\s+you|is\s+there|are\s+there|was\s+there|should\s+we|may\s+i\s+ask|might\s+you)\b/i;
 
 /**
  * Imperative / behavioral / technical interview requests (often spoken without a question mark)
  */
 export const IMPERATIVE_REQUEST_STARTER =
-  /^(tell\s+me(\s+about|\s+how|\s+why|\s+what|\s+a\s+time)?|walk\s+me\s+through|describe(\s+your|\s+a|\s+how|\s+the|\s+what)?|explain(\s+your|\s+how|\s+why|\s+what|\s+the|\s+a|\s+to\s+me)?|share(\s+an\s+example|\s+a\s+time|\s+your|\s+how)?|give\s+me\s+(an\s+example|a\s+brief|some\s+background|an\s+overview)|talk(\s+to\s+me)?\s+about|elaborate\s+on|discuss(\s+your|\s+how|\s+the)?|compare(\s+and\s+contrast)?|define\b|outline\b|summarize\b|take\s+me\s+through|help\s+me\s+understand|speak\s+to)\b/i;
+  /^(tell\s+(me|us)(\s+about|\s+how|\s+why|\s+what|\s+a\s+time)?|walk\s+(me|us)\s+through|describe(\s+your|\s+a|\s+how|\s+the|\s+what)?|explain(\s+your|\s+how|\s+why|\s+what|\s+the|\s+a|\s+to\s+(me|us))?|share(\s+an\s+example|\s+a\s+time|\s+your|\s+how)?|give\s+(me|us)\s+(an\s+example|a\s+brief|some\s+background|an\s+overview)|talk(\s+to\s+(me|us))?\s+about|elaborate\s+on|discuss(\s+your|\s+how|\s+the)?|compare(\s+and\s+contrast)?|define\b|outline\b|summarize\b|take\s+(me|us)\s+through|help\s+(me|us)\s+understand|speak\s+to)\b/i;
 
 /**
  * Indirect interview prompts
  */
 export const INDIRECT_PROMPT_STARTER =
-  /^(i'd\s+(like|love)\s+to\s+(hear|know|learn|understand)(\s+more)?\s+about|i\s+would\s+(like|love)\s+to\s+(hear|know|learn|understand)(\s+more)?\s+about|i'm\s+(curious|interested)\s+(to\s+(hear|know|learn)|about)|i\s+am\s+(curious|interested)\s+(to\s+(hear|know|learn)|about)|let's\s+(talk|hear)\s+about\s+your|let's\s+discuss\s+your)\b/i;
+  /^(i'd\s+(like|love)\s+to\s+(hear|know|learn|understand)(\s+more)?\s+about|i\s+would\s+(like|love)\s+to\s+(hear|know|learn|understand)(\s+more)?\s+about|i'm\s+(curious|interested)\s+(to\s+(hear|know|learn)|about)|i\s+am\s+(curious|interested)\s+(to\s+(hear|know|learn)|about)|let's\s+(talk|hear)\s+about\b|let's\s+discuss\b)/i;
 
 /**
  * Trailing tokens or incomplete stem phrases that indicate the speaker is still mid-sentence
@@ -97,6 +97,12 @@ export function isFillerOrTransition(text: string): boolean {
 
 export function looksIncompletePhrase(text: string): boolean {
   const trimmed = text.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (isGreetingOrSmallTalk(trimmed) || isFillerOrTransition(trimmed)) {
+    return false;
+  }
   if (trimmed.endsWith('...')) {
     return true;
   }

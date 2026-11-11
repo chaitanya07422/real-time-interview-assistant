@@ -58,6 +58,10 @@ export function QuestionPanel({
                   ? 'Analyzing question...'
                   : 'Generating answer...'}
               </span>
+            ) : activeQuestion.status === 'error' ? (
+              <span className="inline-flex items-center gap-1 text-[11px] text-rose-400">
+                Generation failed
+              </span>
             ) : (
               <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400">
                 <CheckCircle2 className="h-3 w-3" />

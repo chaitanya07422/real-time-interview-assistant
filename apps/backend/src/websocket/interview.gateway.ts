@@ -222,9 +222,34 @@ export class InterviewGateway implements OnModuleDestroy {
     }
 
     const startPayload = payload as StartSessionPayload;
+    const formatValidation = this.audioService.validateAudioFormat(
+      startPayload.mimeType,
+      startPayload.sampleRate,
+    );
+    if (!formatValidation.valid) {
+      this.sendEvent(clientCtx.socket, {
+        type: 'ERROR',
+        payload: {
+          code: formatValidation.errorCode ?? 'AUDIO_FORMAT_INVALID',
+          message:
+            formatValidation.errorMessage ?? 'Invalid audio format.',
+        },
+      });
+      return;
+    }
+
     const session = this.sessionManager.createSession(startPayload);
     const { sessionId } = session;
     clientCtx.sessionId = sessionId;
+
+    session.audioState = 'listening';
+    this.sendEvent(clientCtx.socket, {
+      type: 'SESSION_READY',
+      payload: {
+        sessionId,
+        timestamp: Date.now(),
+      },
+    });
 
     this.audioService.startAudioSession(
       sessionId,
@@ -241,6 +266,7 @@ export class InterviewGateway implements OnModuleDestroy {
         },
         onInterimTranscript: (text: string) => {
           this.sessionManager.updateInterimTranscript(sessionId, text);
+          this.questionDetectionService.notifyInterimTranscript(sessionId);
           this.sendEvent(clientCtx.socket, {
             type: 'TRANSCRIPT_UPDATE',
             payload: { text, isFinal: false },
@@ -261,22 +287,23 @@ export class InterviewGateway implements OnModuleDestroy {
           );
         },
         onError: (code: string, message: string) => {
+          const active = this.sessionManager.getSession(sessionId);
+          if (active) {
+            active.audioState = 'error';
+          }
           this.sendEvent(clientCtx.socket, {
             type: 'ERROR',
             payload: { code, message },
           });
         },
+        onClose: () => {
+          const active = this.sessionManager.getSession(sessionId);
+          if (active) {
+            active.audioState = 'stopped';
+          }
+        },
       },
     );
-
-    session.audioState = 'listening';
-    this.sendEvent(clientCtx.socket, {
-      type: 'SESSION_READY',
-      payload: {
-        sessionId,
-        timestamp: Date.now(),
-      },
-    });
   }
 
   private handleJsonAudioChunk(
@@ -359,6 +386,7 @@ export class InterviewGateway implements OnModuleDestroy {
 
     if (!isFinal) {
       this.sessionManager.updateInterimTranscript(clientCtx.sessionId, text);
+      this.questionDetectionService.notifyInterimTranscript(clientCtx.sessionId);
       this.sendEvent(clientCtx.socket, {
         type: 'TRANSCRIPT_UPDATE',
         payload: { text, isFinal: false },
@@ -497,14 +525,17 @@ export class InterviewGateway implements OnModuleDestroy {
           this.sendEvent(clientCtx.socket, {
             type: 'LATENCY_METRICS',
             payload: {
+              questionId: latencyMetrics.questionId,
               questionDetectionMs: latencyMetrics.questionDetectionMs,
               timeToFirstTokenMs: latencyMetrics.timeToFirstTokenMs,
               totalGenerationMs: latencyMetrics.totalGenerationMs,
+              endToEndLatencyMs: latencyMetrics.endToEndLatencyMs,
             },
           });
         },
         onError: (code: string, message: string) => {
           if (abortController.signal.aborted) return;
+          this.sessionManager.setActiveAnswerGeneration(sessionId, null);
           this.sendEvent(clientCtx.socket, {
             type: 'ERROR',
             payload: { code, message },

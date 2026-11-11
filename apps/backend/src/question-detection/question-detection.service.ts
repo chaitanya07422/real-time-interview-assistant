@@ -22,6 +22,7 @@ interface SessionDetectionBuffer {
   lastSegmentAt: number | null;
   silenceTimer: NodeJS.Timeout | null;
   incompleteExpiryTimer: NodeJS.Timeout | null;
+  lastOnDetected: QuestionDetectedCallback | null;
   questionCounter: number;
   processedQuestions: Array<{
     normalized: string;
@@ -56,6 +57,7 @@ export class QuestionDetectionService {
         lastSegmentAt: null,
         silenceTimer: null,
         incompleteExpiryTimer: null,
+        lastOnDetected: null,
         questionCounter: 0,
         processedQuestions: [],
         lastTranscriptSegmentNormalized: '',
@@ -79,6 +81,26 @@ export class QuestionDetectionService {
       combined = `${combined} ${nextSeg}`;
     }
     return combined.replace(/\s+/g, ' ').trim();
+  }
+
+  notifyInterimTranscript(sessionId: string, timestamp: number = Date.now()): void {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.segments.length === 0) {
+      return;
+    }
+
+    // Speaker is actively continuing their utterance; reset pending silence timer
+    // so we do not prematurely evaluate a partial question mid-speech.
+    if (session.silenceTimer) {
+      this.clearSilenceTimer(session);
+      session.silenceTimer = setTimeout(() => {
+        this.evaluateAccumulatedUtterance(sessionId, undefined, Date.now());
+      }, this.defaultSilenceThresholdMs);
+    }
+
+    if (session.incompleteExpiryTimer) {
+      session.lastSegmentAt = timestamp;
+    }
   }
 
   ingestFinalTranscript(
@@ -115,8 +137,10 @@ export class QuestionDetectionService {
     ) {
       session.segments = [];
       session.firstSegmentAt = null;
+      session.lastTranscriptSegmentNormalized = '';
     }
 
+    session.lastOnDetected = onDetected;
     session.segments.push(trimmed);
     if (session.firstSegmentAt === null) {
       session.firstSegmentAt = now;
@@ -135,7 +159,11 @@ export class QuestionDetectionService {
     }
 
     session.silenceTimer = setTimeout(() => {
-      this.evaluateAccumulatedUtterance(sessionId, onDetected, Date.now());
+      this.evaluateAccumulatedUtterance(
+        sessionId,
+        session.lastOnDetected ?? onDetected,
+        Date.now(),
+      );
     }, silenceMs);
 
     return null;
@@ -219,8 +247,9 @@ export class QuestionDetectionService {
       detectedAt: evaluatedAt,
     };
 
-    if (onDetected) {
-      onDetected(result);
+    const callbackToUse = onDetected ?? session.lastOnDetected;
+    if (callbackToUse) {
+      callbackToUse(result);
     }
 
     return result;

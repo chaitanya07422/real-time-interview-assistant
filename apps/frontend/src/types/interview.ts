@@ -18,9 +18,11 @@ export interface TranscriptSegment {
 }
 
 export interface LatencyMetrics {
+  questionId?: string;
   questionDetectionMs: number;
   timeToFirstTokenMs: number;
   totalGenerationMs: number;
+  endToEndLatencyMs?: number;
 }
 
 export interface DetectedQuestionItem {
@@ -54,7 +56,7 @@ Software Engineer with 5+ years of experience building low-latency real-time web
 
 Experience:
 - Senior Software Engineer at CloudScale AI (2023–Present):
-  • Architected a real-time customer support voice assistant using Next.js, NestJS (Fastify), WebSockets, Deepgram Nova-2 STT, and Google Gemini.
+  • Architected a real-time customer support voice assistant using Next.js, NestJS (Fastify), WebSockets, Deepgram Nova-3 STT, and Google Gemini.
   • Reduced end-to-end AI answer latency (Time-to-First-Token) from 4.2s to 1.4s by replacing buffered REST calls with binary WebSocket audio streaming, hybrid VAD endpointing, and streaming LLM generation.
   • Implemented bounded audio ring buffers and exponential backoff reconnection handling 10,000+ concurrent WebSocket sessions with 99.95% uptime.
 - Software Engineer at FinStream Systems (2021–2023):

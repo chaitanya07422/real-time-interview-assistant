@@ -41,6 +41,8 @@ export function useAudioCapture() {
   const stopCapture = useCallback(() => {
     if (recorderRef.current) {
       try {
+        recorderRef.current.ondataavailable = null;
+        recorderRef.current.onerror = null;
         if (recorderRef.current.state !== 'inactive') {
           recorderRef.current.stop();
         }
@@ -155,10 +157,16 @@ export function useAudioCapture() {
       setActiveMimeType(actualMimeType);
 
       recorder.ondataavailable = async (event: BlobEvent) => {
-        if (event.data && event.data.size > 0) {
+        if (
+          recorderRef.current === recorder &&
+          event.data &&
+          event.data.size > 0
+        ) {
           try {
             const buffer = await event.data.arrayBuffer();
-            options.onAudioChunk(buffer);
+            if (recorderRef.current === recorder) {
+              options.onAudioChunk(buffer);
+            }
           } catch {
             // ignore conversion error
           }

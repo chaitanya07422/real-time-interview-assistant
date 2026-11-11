@@ -22,6 +22,94 @@ interface AnswerPanelProps {
   onDismissError: () => void;
 }
 
+function renderInlineBold(text: string): React.ReactNode[] {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      return (
+        <strong key={idx} className="font-bold text-white">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    // Strip any dangling unclosed '**' while tokens are mid-stream
+    return <React.Fragment key={idx}>{part.replace(/\*\*/g, '')}</React.Fragment>;
+  });
+}
+
+function renderFormattedAnswer(
+  answer: string,
+  isStreaming: boolean,
+): React.ReactNode {
+  // Ensure STAR labels start on their own line even if LLM emits them inline
+  const normalized = answer.replace(
+    /([^\n])\s*(\*\*(?:Situation|Task|Action|Result):?\*\*)/gi,
+    '$1\n$2',
+  );
+  const lines = normalized.split('\n').filter((line) => line.trim().length > 0);
+
+  return (
+    <div className="space-y-2.5">
+      {lines.map((rawLine, idx) => {
+        const trimmed = rawLine.trim();
+        const isLastLine = idx === lines.length - 1;
+        const cursor = isStreaming && isLastLine ? (
+          <span className="inline-block w-2 h-4 ml-1 align-middle bg-cyan-400 animate-pulse" />
+        ) : null;
+
+        // Check for STAR section header: e.g. **Situation:** ... or Situation: ...
+        const starMatch = trimmed.match(
+          /^(?:\*\*)?(Situation|Task|Action|Result):?(?:\*\*)?:?\s*(.*)$/i,
+        );
+        if (starMatch) {
+          const label =
+            starMatch[1].charAt(0).toUpperCase() +
+            starMatch[1].slice(1).toLowerCase();
+          const body = starMatch[2] ?? '';
+          return (
+            <div
+              key={idx}
+              className="leading-relaxed text-sm text-slate-100"
+            >
+              <strong className="font-bold text-cyan-300 mr-1.5">
+                {label}:
+              </strong>
+              <span>{renderInlineBold(body)}</span>
+              {cursor}
+            </div>
+          );
+        }
+
+        // Check for bullet line: - ... or • ... or * ...
+        const bulletMatch = trimmed.match(/^[-•*]\s+(.*)$/);
+        if (bulletMatch) {
+          return (
+            <div
+              key={idx}
+              className="flex items-start gap-2.5 leading-relaxed text-sm text-slate-100"
+            >
+              <span className="text-cyan-400 font-bold select-none mt-0.5">
+                •
+              </span>
+              <span className="flex-1">
+                {renderInlineBold(bulletMatch[1])}
+                {cursor}
+              </span>
+            </div>
+          );
+        }
+
+        return (
+          <p key={idx} className="leading-relaxed text-sm text-slate-100">
+            {renderInlineBold(trimmed)}
+            {cursor}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AnswerPanel({
   activeQuestion,
   latestLatency,
@@ -66,6 +154,17 @@ export function AnswerPanel({
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-300">
               Total: <strong>{latency.totalGenerationMs}ms</strong>
             </span>
+            {latency.endToEndLatencyMs !== undefined && (
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border ${
+                  latency.endToEndLatencyMs <= 3000
+                    ? 'bg-emerald-950/60 border-emerald-800/60 text-emerald-300'
+                    : 'bg-amber-950/60 border-amber-800/60 text-amber-300'
+                }`}
+              >
+                E2E: <strong>{latency.endToEndLatencyMs}ms</strong>
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -117,11 +216,8 @@ export function AnswerPanel({
             )}
 
             {activeQuestion.answer && (
-              <div className="bg-slate-950/90 border border-slate-800 rounded-lg p-4 text-sm text-slate-100 leading-relaxed whitespace-pre-wrap">
-                {activeQuestion.answer}
-                {isStreaming && (
-                  <span className="inline-block w-2 h-4 ml-1 align-middle bg-cyan-400 animate-pulse" />
-                )}
+              <div className="bg-slate-950/90 border border-slate-800 rounded-lg p-4 text-sm text-slate-100 leading-relaxed">
+                {renderFormattedAnswer(activeQuestion.answer, isStreaming)}
               </div>
             )}
 

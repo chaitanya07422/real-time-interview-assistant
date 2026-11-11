@@ -104,11 +104,17 @@ describe('End-to-End WebSocket Interview Pipeline (PRD Section 17.4 & 17.5)', ()
     // 2. Send binary audio chunk
     client.send(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
 
-    // 3. Simulate greeting (should be ignored)
+    // 3. Simulate greeting and 1-word filler (both should be ignored without poisoning buffer)
     client.send(
       JSON.stringify({
         type: 'SIMULATE_SPEECH',
         payload: { text: 'Hello, how are you?', isFinal: true, speechFinal: true },
+      }),
+    );
+    client.send(
+      JSON.stringify({
+        type: 'SIMULATE_SPEECH',
+        payload: { text: 'Sure.', isFinal: true, speechFinal: true },
       }),
     );
 
@@ -158,8 +164,11 @@ describe('End-to-End WebSocket Interview Pipeline (PRD Section 17.4 & 17.5)', ()
     expect(latencyEvents).toHaveLength(5);
     for (const metricEvent of latencyEvents) {
       if (metricEvent.type === 'LATENCY_METRICS') {
+        expect(metricEvent.payload.questionId).toMatch(/^question-00[1-5]$/);
         expect(metricEvent.payload.questionDetectionMs).toBeLessThan(3000);
         expect(metricEvent.payload.timeToFirstTokenMs).toBeLessThan(3000);
+        expect(metricEvent.payload.endToEndLatencyMs).toBeDefined();
+        expect(metricEvent.payload.endToEndLatencyMs).toBeLessThan(3000);
       }
     }
   });

@@ -11,15 +11,11 @@ import { useInterviewSocket } from '../hooks/useInterviewSocket';
 import {
   AnswerMode,
   AudioInputMode,
-  SAMPLE_JOB_DESCRIPTION,
-  SAMPLE_RESUME,
 } from '../types/interview';
 
 export default function InterviewDashboardPage() {
-  const [resume, setResume] = useState<string>(SAMPLE_RESUME);
-  const [jobDescription, setJobDescription] = useState<string>(
-    SAMPLE_JOB_DESCRIPTION,
-  );
+  const [resume, setResume] = useState<string>('');
+  const [jobDescription, setJobDescription] = useState<string>('');
   const [audioMode, setAudioMode] = useState<AudioInputMode>('microphone');
   const [answerMode, setAnswerMode] = useState<AnswerMode>('concise');
 

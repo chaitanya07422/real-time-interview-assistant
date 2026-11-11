@@ -146,5 +146,74 @@ describe('QuestionDetectionService (PRD Section 17.3 & FR-05)', () => {
       ]);
       service.clearSession('session-split');
     });
+
+    it('does not hold 1-2 word greetings or fillers in the incomplete buffer and detects the following question cleanly', () => {
+      const detected: string[] = [];
+
+      for (const filler of ['Hello.', 'Sure.', 'Got it.', 'Sounds good.', 'I see.']) {
+        service.ingestFinalTranscript(
+          'session-filler-seq',
+          filler,
+          (res) => detected.push(res.question),
+          { speechFinal: true, timestamp: 1000 },
+        );
+      }
+      expect(detected).toHaveLength(0);
+
+      service.ingestFinalTranscript(
+        'session-filler-seq',
+        'Tell me about yourself.',
+        (res) => detected.push(res.question),
+        { speechFinal: true, timestamp: 2000 },
+      );
+
+      expect(detected).toEqual(['Tell me about yourself.']);
+      service.clearSession('session-filler-seq');
+    });
+
+    it('recognizes plural interviewer requests and conversational prefixes', () => {
+      expect(
+        service.extractQuestionFromText('Walk us through your system architecture.'),
+      ).toBe('Walk us through your system architecture.');
+      expect(
+        service.extractQuestionFromText('Tell us about your previous project.'),
+      ).toBe('Tell us about your previous project.');
+      expect(
+        service.extractQuestionFromText('Sure, tell me about yourself.'),
+      ).toBe('Tell me about yourself.');
+      expect(
+        service.extractQuestionFromText('Got it, how did you improve performance?'),
+      ).toBe('How did you improve performance?');
+    });
+
+    it('resets silence timer when interim transcripts arrive so multi-clause questions are not cut off mid-speech', async () => {
+      const detected: string[] = [];
+
+      service.ingestFinalTranscript(
+        'session-interim',
+        'Can you explain your architecture',
+        (res) => detected.push(res.question),
+        { speechFinal: false, silenceThresholdMs: 80, timestamp: 1000 },
+      );
+
+      await new Promise((r) => setTimeout(r, 45));
+      service.notifyInterimTranscript('session-interim', 1045);
+
+      await new Promise((r) => setTimeout(r, 45));
+      // Without notifyInterimTranscript, the 80ms silence timer would have already fired at ~80ms
+      expect(detected).toHaveLength(0);
+
+      service.ingestFinalTranscript(
+        'session-interim',
+        'and how you handled scaling?',
+        (res) => detected.push(res.question),
+        { speechFinal: true, timestamp: 1100 },
+      );
+
+      expect(detected).toEqual([
+        'Can you explain your architecture and how you handled scaling?',
+      ]);
+      service.clearSession('session-interim');
+    });
   });
 });
