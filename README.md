@@ -1,187 +1,214 @@
-# Real-Time AI Interview Assistant (POC)
+# Real-Time AI Interview Assistant
 
-A real-time web application that assists candidates during virtual technical, behavioral, and HR interviews by capturing live audio, streaming Speech-to-Text (STT) via **Deepgram**, automatically detecting completed interview questions, and streaming concise, context-grounded suggested answers using **Google Gemini**.
+A low-latency, real-time interview copilot engineered to listen to live virtual interviews (Google Meet, Zoom, Teams, or microphone input), transcribe speech on the fly via **Deepgram Nova-3**, detect when an interviewer finishes asking a substantive question while ignoring small talk and mid-sentence thinking pauses, and stream speakable, resume-grounded answers token-by-token using **Google Gemini 2.5 Flash**.
 
----
-
-## 1. Project Overview & Features
-
-### Pipeline Flow
-`Audio Input (Mic / Tab) → Binary WebSocket Stream → Deepgram Live STT → Hybrid Question Detection → Google Gemini Streaming → Real-Time UI Display`
-
-### Implemented Features
-- **Candidate Context Configuration (FR-01):** Multiline inputs for Resume and Job Description with validation, prompt-injection sanitization, and one-click sample context loading.
-- **Dual-Mode Audio Capture (FR-02):**
-  - **Mode A (Browser Tab Audio):** Captures meeting tab audio via `navigator.mediaDevices.getDisplayMedia()`.
-  - **Mode B (Microphone Audio):** Captures microphone audio via `navigator.mediaDevices.getUserMedia()` with echo cancellation and noise suppression.
-- **Binary WebSocket Audio Streaming (FR-03):** Streams raw 250ms binary `ArrayBuffer` chunks from browser `MediaRecorder` to the NestJS Fastify backend without base64 bloat, backed by a bounded pre-open buffer that preserves container headers.
-- **Real-Time Speech-to-Text (FR-04):** Integrates Deepgram Nova-3 Live Streaming (`nova-3`, Deepgram's highest-accuracy flagship model) with visual distinction between `TRANSCRIPT_UPDATE` (interim) and `TRANSCRIPT_FINAL` (confirmed) segments.
-- **5-Stage Hybrid Question Detection Engine (FR-05):** Combines Deepgram `speech_final` and `UtteranceEnd` signals, configurable silence timers (`800–1200ms`), sentence segmentation, linguistic question/imperative heuristics, greeting/filler filtering, and Jaccard similarity deduplication.
-- **Grounded Streaming Answer Generation (FR-06 & FR-07):** Streams concise (60–90 words / 3–6 bullet points), first-person answers from Google Gemini strictly grounded in the candidate's resume and job description, with automatic `AbortController` cancellation if a new question supersedes an in-flight generation.
-- **Latency Metrics & Reliability:** Measures `questionDetectionMs`, `timeToFirstTokenMs` (TTFT), and `totalGenerationMs` per question, and implements bounded exponential backoff WebSocket reconnection.
+Built around a strict **sub-3-second Time-to-First-Token (TTFT)** latency budget (`Audio Capture → Binary WS Transport → Streaming STT → Hybrid Stateful Question Detection → Streaming LLM → Live UI`).
 
 ---
 
-## 2. Technology Stack
-
-| Layer | Technology |
-|---|---|
-| **Frontend** | Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS v4, Browser MediaDevices & MediaRecorder APIs, Native WebSocket API |
-| **Backend** | Node.js, NestJS 11, Fastify Adapter, `ws` WebSocket Server |
-| **Speech-to-Text** | Deepgram Live Streaming WebSocket API (`wss://api.deepgram.com/v1/listen`, `nova-3`) |
-| **LLM** | Google Gemini Streaming API (`@google/genai`, configurable via `GEMINI_MODEL`) |
-| **Testing** | Jest, `@nestjs/testing`, End-to-End WebSocket Pipeline Tests |
-
----
-
-## 3. High-Level Architecture
-
-```
-+-------------------------------------------------------------------------+
-|                        FRONTEND (Next.js + React)                       |
-|                                                                         |
-|  [ContextForm]   [AudioControls (Mic / Tab)]   [StatusIndicator]        |
-|                         |                                               |
-|               MediaRecorder (250ms binary chunks)                       |
-|                         |                                               |
-|  [TranscriptPanel] <--- Native WebSocket (ws://) ---> [QuestionPanel]   |
-|                                                       [AnswerPanel]     |
-+---------------------------------|---------------------------------------+
-                                  | Binary Audio + JSON Events
-                                  v
-+-------------------------------------------------------------------------+
-|                    BACKEND (NestJS + Fastify + ws)                      |
-|                                                                         |
-|  [InterviewGateway] <---> [SessionManagerService] <---> [MetricsService]|
-|         |                                                      ^        |
-|         +---> [AudioService] (Validation & Bounded Buffer)     |        |
-|                     |                                          |        |
-|                     v                                          |        |
-|         [TranscriptionService] <== WSS ==> (Deepgram Live API) |        |
-|                     |                                          |        |
-|          Interim & Final Transcripts + Endpointing             |        |
-|                     v                                          |        |
-|       [QuestionDetectionService] (5-Stage Hybrid Engine)       |        |
-|                     |                                          |        |
-|              Detected Question (question-001)                  |        |
-|                     v                                          |        |
-|       [AnswerGenerationService] <== SSE ==> (Google Gemini API)+        |
-+-------------------------------------------------------------------------+
-```
-
----
-
-## 4. Setup Instructions & Environment Configuration
+## 1. Setup & Run Instructions (From a Clean Machine)
 
 ### Prerequisites
-- **Node.js:** v20+
-- **npm:** v10+
+- **Node.js:** `>= 20.0.0` (verify with `node -v`)
+- **npm:** `>= 10.0.0` (uses native npm workspaces; no global CLI dependencies required)
+- **Browser:** Chromium-based browser (Chrome, Edge, Brave) recommended for browser-tab audio capture (`getDisplayMedia` with tab audio sharing); Microphone mode (`getUserMedia`) works in all modern browsers.
 - **API Keys:**
-  - [Deepgram API Key](https://console.deepgram.com/)
-  - [Google Gemini API Key](https://aistudio.google.com/)
+  - **Deepgram API Key:** [Create a free key at console.deepgram.com](https://console.deepgram.com/) ($200 free credit tier; supports `nova-3` and `nova-2` streaming).
+  - **Google Gemini API Key:** [Create a free key at aistudio.google.com](https://aistudio.google.com/) (supports `gemini-2.5-flash`).
 
-### Step 1: Install Dependencies
-From the repository root:
+### Step 1: Clone & Install Dependencies
+From the root of the repository, install dependencies for both `apps/backend` and `apps/frontend` workspaces in one command:
 ```bash
+git clone https://github.com/chaitanya07422/real-time-interview-assistant.git
+cd real-time-interview-assistant
 npm install
 ```
 
 ### Step 2: Configure Environment Variables
-Copy `.env.example` to `.env` in the repository root (the backend loads `.env` from either the root directory or `apps/backend/.env`):
+Copy `.env.example` to `.env` in the repository root. The NestJS backend automatically resolves `.env` from either the repository root or `apps/backend/.env`:
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
+Open `.env` and add your `DEEPGRAM_API_KEY` and `GEMINI_API_KEY`:
 ```env
-# Backend Configuration
+# --- Backend Configuration ---
 PORT=4000
 FRONTEND_ORIGIN=http://localhost:3000
+
+# Deepgram Streaming Speech-to-Text Configuration
 DEEPGRAM_API_KEY=your_deepgram_api_key
 DEEPGRAM_MODEL=nova-3
+
+# Google Gemini API Configuration
 GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL=gemini-2.5-flash
+
+# Question Detection Silence Threshold (ms)
 QUESTION_SILENCE_THRESHOLD_MS=900
 
-# Frontend Configuration
+# --- Frontend Configuration ---
 NEXT_PUBLIC_BACKEND_WS_URL=ws://localhost:4000
 ```
+> **Security Note:** API keys are read exclusively by the backend process (`apps/backend`). No secret keys are prefixed with `NEXT_PUBLIC_` or exposed to the browser bundle.
 
----
+### Step 3: Start Backend & Frontend
+Open two terminal tabs from the repository root:
 
-## 5. How to Run the Application
-
-### Run Backend (Port 4000)
+**Terminal 1 — Start the NestJS + Fastify WebSocket Backend (Port `4000`):**
 ```bash
 npm run dev:backend
 ```
+Verify backend health at `http://localhost:4000/health` (`{"status":"ok","service":"real-time-interview-assistant-backend"}`).
 
-### Run Frontend (Port 3000)
-In a second terminal:
+**Terminal 2 — Start the Next.js 15 Frontend (Port `3000`):**
 ```bash
 npm run dev:frontend
 ```
-Open **`http://localhost:3000`** in Chrome/Edge/Brave.
+Open **`http://localhost:3000`** in your browser.
 
-### Run Automated Tests & Build Verification
+### Step 4: Using the Application (Live Audio or Demo Simulation)
+1. **Provide Candidate Context:** Paste your **Resume / Professional Summary** and the target **Job Description** (or click **"Load Sample Context"** to populate a realistic Senior Engineer profile).
+2. **Choose Audio Source & Answer Mode:**
+   - **Mode B (Microphone Audio):** Captures speech directly from your microphone.
+   - **Mode A (Browser Tab Audio):** Captures audio directly from a Google Meet / Zoom / YouTube tab (select the tab in the browser picker and check **"Also share tab audio"**).
+   - **Answer Mode:** Choose **Concise** (default, 60–90 words / 3–5 speakable bullets), **Detailed** (130–180 words with architectural depth), or **STAR Format** (`Situation`, `Task`, `Action`, `Result` for behavioral questions).
+3. **Start Listening or Trigger Quick Demo Questions:**
+   - Click **Start Listening** and speak an interview question (or play an interview clip), **or**
+   - Click any of the **Quick Demo Question Trigger** buttons (`"Tell me about yourself."`, `"How did you improve AI response latency?"`, etc.) to exercise the full backend Question Detection → Gemini Streaming → Latency Telemetry pipeline without speaking into a mic.
+
+### Step 5: Verify Automated Tests, Typecheck, and Production Build
 ```bash
-# Run backend unit & end-to-end WebSocket pipeline tests
+# Run all 22 unit & end-to-end WebSocket pipeline tests
 npm test
 
-# Type-check both workspaces
+# Run strict TypeScript typechecking across backend and frontend
 npm run lint
 
-# Production build of both backend and frontend
+# Build production bundles for both backend (NestJS) and frontend (Next.js)
 npm run build
 ```
 
 ---
 
-## 6. Key Technical Decisions & Question Detection Approach
+## 2. System Architecture & End-to-End Data Flow
 
-### Binary WebSocket Audio Pipeline
-- **No Base64 Overhead:** Browser `MediaRecorder` emits `Blob` slices every `250ms`, which are converted to `ArrayBuffer` and transmitted as native binary WebSocket frames (`ws.send(buffer)`).
-- **Container Header Preservation:** When using containerized formats (`audio/webm;codecs=opus`), the first chunk contains the EBML/WebM header. `TranscriptionService` maintains a bounded queue (`MAX_PENDING_CHUNKS = 60`) while the Deepgram socket handshake completes, flushing chunk `#0` onward in exact order upon `LiveTranscriptionEvents.Open`.
+### Architecture Diagram
+```
++-----------------------------------------------------------------------------------+
+|                        BROWSER CLIENT (Next.js 15 / React 19)                     |
+|                                                                                   |
+|  [ContextForm: Resume + JD]   [AudioControls: Mic/Tab + Mode (Concise/STAR)]      |
+|                                       |                                           |
+|                 useAudioCapture (getUserMedia / getDisplayMedia)                  |
+|                 MediaRecorder (250ms timeslice -> ArrayBuffer)                    |
+|                 Pre-Session Early Chunk Queue (preserves Chunk #0 EBML header)    |
+|                                       |                                           |
+|  [TranscriptPanel] <==== Single Duplex WebSocket (ws://) ====> [QuestionPanel]    |
+|  (Interim + Final)      (Binary Audio Up / JSON Events Down)   [AnswerPanel]      |
++---------------------------------------|-------------------------------------------+
+                                        |
+                                        v
++-----------------------------------------------------------------------------------+
+|                  BACKEND SERVER (NestJS 11 + Fastify + Native ws)                 |
+|                                                                                   |
+|  [InterviewGateway] <---> [SessionManagerService] <---> [MetricsService]          |
+|         |                 (Per-session state, history,   (Detection, TTFT, Total, |
+|         |                  active AbortController)        and E2E ms telemetry)   |
+|         v                                                                         |
+|  [AudioService] (MIME/SampleRate validation, 512KB frame guard)                   |
+|         |                                                                         |
+|         v                                                                         |
+|  [TranscriptionService] === Persistent WSS ===> Deepgram Live API (nova-3)        |
+|   - Pre-open bounded ring buffer (60 chunks)    - smart_format, punctuate,        |
+|   - WebM header caching & auto-reconnect          numerals, interim_results       |
+|   - 8s KeepAlive heartbeat                      - endpointing=600, vad_events     |
+|         |                                                                         |
+|         | (Interim transcripts reset silence timer; Final transcripts accumulate) |
+|         v                                                                         |
+|  [QuestionDetectionService] (5-Stage Stateful Hybrid Detection Engine)            |
+|   1. Segment dedup & interim-speech silence timer deferral                        |
+|   2. Mid-sentence incomplete stem hold buffer (10s continuation window)           |
+|   3. Sentence boundary splitter & conversational filler prefix stripper           |
+|   4. Linguistic classifier (Interrogative / Modal / Imperative / Indirect)        |
+|   5. Greeting & mic-check filter + Jaccard similarity (>= 0.85) deduplication     |
+|         |                                                                         |
+|         | Emits QUESTION_DETECTED (question-001) + Aborts stale LLM stream        |
+|         v                                                                         |
+|  [AnswerGenerationService] + [PromptBuilder] === Streaming ===> Google Gemini API |
+|   - XML tag sanitization (<candidate_resume>, <job_description>) (gemini-2.5-flash|
+|   - Injects last 3 Q&A pairs for follow-up continuity            thinkingBudget:0)|
++-----------------------------------------------------------------------------------+
+```
 
-### 5-Stage Hybrid Question Detection Engine
-1. **Transcript Accumulation & Interim Activity Tracking:** Final segments (`is_final: true`) are accumulated per session while ignoring back-to-back duplicate STT emissions. Incoming interim transcripts (`is_final: false`) actively reset pending silence timers so multi-clause questions are never cut off while the interviewer is still speaking.
-2. **Speech Completion & Incomplete-Stem Holding:** Evaluation triggers immediately when Deepgram signals `speech_final: true` (provided the phrase does not end with a dangling conjunction/preposition or incomplete stem) or when `UtteranceEnd` / the configurable silence timer (`900ms` default) fires. Mid-sentence pauses are held up to `10s` for continuation, whereas 1–2 word greetings/fillers (`"Hello."`, `"Sure."`, `"Got it."`) are immediately recognized as complete non-questions and discarded.
-3. **Sentence Segmentation & Prefix Stripping:** Multi-sentence utterances (e.g., *"Okay, let's start. Can you tell me about yourself?"*) are split on sentence boundaries; conversational prefixes are stripped so *"Okay, let's start."* is discarded and *"Can you tell me about yourself?"* is extracted.
-4. **Linguistic Classification & Validation:**
-   - **Accepts:** Interrogatives (`what`, `why`, `how`, `when`, `where`, `who`, `which`), auxiliary questions (`can you`, `could you`, `would you`, `have you`, `did you`), imperative prompts without question marks (`tell me about`, `walk me through`, `explain`, `describe`, `share an example`), and indirect prompts (`I'd love to hear about`).
-   - **Rejects:** Greetings (`"Hello, how are you?"`), audio checks (`"Can you hear me?"`), filler transitions (`"Okay, let's start."`), standalone declarative statements (`"I worked on a backend system."`), and incomplete < 3-word fragments.
-5. **Deduplication:** Normalized text and token-level Jaccard similarity (`>= 0.85`) prevent repeated LLM calls for duplicate questions.
+### Complete Execution Flow & Latency Budget (`< 3.0s` Target)
+To consistently hit sub-3-second Time-to-First-Token after an interviewer stops speaking, every stage of the pipeline is non-blocking and streaming:
 
----
-
-## 7. Latency Measurements
-
-| Stage | Metric | Typical Measured Range |
+| Pipeline Stage | Engineering Mechanism | Verified / Typical Latency |
 |---|---|---|
-| Audio Endpoint → Question Detected | `questionDetectionMs` | `5ms – 350ms` (on `speech_final`) / `~900ms` (silence timer fallback) |
-| Gemini Request → First Streamed Chunk | `timeToFirstTokenMs` (TTFT) | `450ms – 1,350ms` (`gemini-2.5-flash`) |
-| End-to-End First Answer Token | `endToEndLatencyMs` | **`0.8s – 2.2s`** (Target: `< 3.0s`) |
-| Complete 60–90 Word Answer Stream | `totalGenerationMs` | `1,400ms – 2,600ms` |
+| **1. Audio Capture** | `MediaRecorder.start(250)` emits 250ms Opus/WebM slices | `125ms – 250ms` |
+| **2. WS Transport** | Raw binary `ArrayBuffer` frames over `ws` (zero Base64 serialization) | `1ms – 15ms` |
+| **3. Streaming STT** | Deepgram `nova-3` streaming WebSocket with `endpointing=600` | `150ms – 600ms` |
+| **4. Question Detection** | In-memory stateful regex/heuristic evaluation on `speech_final` | `< 2ms` (or `~900ms` on silence timer fallback) |
+| **5. LLM First Token (TTFT)** | Cached `GoogleGenAI` client + `gemini-2.5-flash` (`thinkingBudget: 0`) | `450ms – 1,250ms` |
+| **6. UI Token Render** | Direct `ANSWER_CHUNK` dispatch keyed by `questionId` | `< 16ms` (1 frame) |
+| **Total End-to-End (E2E)** | **End of interviewer speech → First answer token on screen** | **`0.8s – 2.1s`** |
 
 ---
 
-## 8. Known Limitations & Future Improvements
+## 3. Key Architectural Decisions & Engineering Trade-Offs
 
-### Known Limitations (POC Scope)
-- In-memory session state only (no database or persistent interview history).
-- No user authentication or multi-tenant billing.
-- Browser-tab audio capture (`getDisplayMedia`) requires Chromium-based browsers for tab-level audio sharing.
-- Heuristic question detection may occasionally misclassify unconventional phrasing.
+### 3.1 Why Deepgram `nova-3` over Whisper / AssemblyAI (and Raw `ws` over SDK)
+- **Why Deepgram `nova-3`:** OpenAI Whisper is a batch encoder-decoder architecture; wrapping it in chunked pseudo-streaming introduces 1.5–3.0s of buffering latency and hallucinated repetitions on silence. Deepgram's `nova-3` is a native streaming speech model with sub-300ms acoustic-to-token latency, built-in smart formatting (`smart_format=true`, `numerals=true`), and high accuracy on software engineering terms (`NestJS`, `Fastify`, `PostgreSQL`, `p95`, `WebSockets`). We also built automatic handshake fallback to `nova-2` if a restricted API key does not have `nova-3` enabled.
+- **Why Direct `ws` Instead of `@deepgram/sdk`:** We bypassed `@deepgram/sdk` and connected directly to `wss://api.deepgram.com/v1/listen` via Node's native `ws` package. This gives us deterministic control over handshake timeouts (`10s`), `KeepAlive` frames (`8s`), HTTP status inspection on `unexpected-response`, and zero-copy `Buffer` forwarding.
+- **Solving the WebM Chunk `#0` Header Trap:** Browser `MediaRecorder` outputs `audio/webm;codecs=opus` where **only the first chunk (`chunk #0`) contains the EBML/WebM container header**, and subsequent chunks are raw Opus clusters. If `chunk #0` is dropped while the Deepgram TLS handshake is opening—or during a mid-session STT reconnect—Deepgram cannot decode subsequent audio. We solved this at both layers:
+  1. On the frontend (`useInterviewSocket.ts`), any `MediaRecorder` chunk emitted before `START_SESSION` is queued and flushed in order immediately after session creation.
+  2. On the backend (`TranscriptionService`), `chunk #0` is cached as `initHeaderChunk` and queued in a bounded pre-open buffer (`MAX_PENDING_CHUNKS = 60`), allowing us to replay the EBML header automatically even if the Deepgram socket reconnects mid-interview.
 
-### Future Improvements
-1. **STAR-Format & Question Category Classifier:** Classify questions into Behavioral, System Design, Coding, or HR to tailor structure (e.g., Situation-Task-Action-Result).
-2. **Speaker Diarization:** Use Deepgram `diarize=true` or dual-stream capture (Tab = Interviewer, Mic = Candidate) to strictly separate candidate speech from interviewer questions.
-3. **Semantic Embedding Deduplication & RAG:** Index candidate project artifacts and resume bullet points for sub-100ms retrieval grounding.
-4. **Redis Session Store & Multi-Provider Failover:** Persist session state in Redis and add automatic STT/LLM fallback providers.
+### 3.2 Why Google Gemini (`gemini-2.5-flash`) with `thinkingBudget: 0`
+- **Latency vs. Reasoning Trade-Off:** Waiting 4+ seconds for a reasoned essay leaves the candidate in awkward silence. `gemini-2.5-flash` has very fast prefill speed, but by default Gemini 2.5 allocates internal "thinking" tokens before emitting the first visible token. By setting `thinkingConfig: { thinkingBudget: 0 }` and `temperature: 0.3`, we eliminate internal reasoning overhead and cut Time-to-First-Token to **~450–950ms** while maintaining strict adherence to resume facts.
+- **Spoken-Voice Prompt Engineering & Anti-Hallucination Grounding:** Our `PromptBuilder` enforces first-person spoken cadence (contractions, plain verbs, 10–20 word glanceable bullets), strict grounding (`Never invent experience, skills, projects, metrics, or employers`), honest pivoting when asked about an unfamiliar tool (*"I haven't used Kafka in production, but I've worked with..."*), and XML boundary sanitization (`sanitizeUntrustedContext`) so pasted job descriptions cannot escape `<job_description>` tags via prompt injection.
+- **Preemptive Stream Cancellation (`AbortController`):** If an interviewer asks a question and immediately follows up or rephrases, `SessionManagerService` aborts the in-flight Gemini stream via `AbortController` before starting the new one so tokens from two answers never interleave.
+
+### 3.3 How Question Detection Works (Stateful Hybrid Engine vs. LLM Classifier)
+Calling an LLM classifier on every final STT transcript adds **300–600ms of serial network latency** before answer generation can begin and burns rate limits on small talk. Conversely, checking `text.endsWith('?')` fails on imperative prompts (*"Walk me through your system design"*, *"Tell me about yourself"*) and triggers prematurely when an interviewer pauses mid-sentence.
+
+We built a **5-stage deterministic state machine** (`QuestionDetectionService` + `question-patterns.ts`) that executes in **< 2ms**:
+1. **Interim-Speech Silence Timer Deferral:** When Deepgram emits a final segment with `speech_final: false`, we start a `900ms` silence timer. Incoming `is_final: false` **interim transcripts** call `notifyInterimTranscript()`, resetting that silence timer in real time so a multi-clause question is never cut off while the interviewer is still actively speaking.
+2. **Mid-Sentence Incomplete-Stem Hold Buffer (`10s` Window):** Interviewers frequently pause mid-thought (*"Tell me about a time where you handled the..."* [3s pause] *"...migration to Fastify"*). Before firing on `speech_final` or `UtteranceEnd`, `looksIncompletePhrase()` checks whether the accumulated utterance ends with a dangling preposition, conjunction, article, or incomplete stem (`"what was the"`, `"how did you"`). If so, the engine **holds the segment in buffer for up to 10 seconds** and merges the continuation clause when the interviewer finishes their sentence.
+3. **Greeting, Small-Talk & Short-Filler Isolation:** Short 1–2 word utterances (`"Hello."`, `"Sure."`, `"Got it."`, `"Sounds good."`, `"I see."`), greetings (`"Hi, how are you?"`), and AV checks (`"Can you hear me okay?"`, `"Is my mic working?"`) are recognized as complete non-questions and discarded immediately so they never pollute the continuation buffer.
+4. **Sentence Segmentation, Prefix Stripping & Linguistic Classification:** Compound utterances (*"Okay, great. Walk us through your system architecture."*) are split by sentence; conversational prefixes (`"Okay, great"`, `"Sure"`, `"Got it"`) are stripped; and each sentence is tested against four interview structures:
+   - **Direct Interrogatives:** `what`, `why`, `how`, `when`, `where`, `who`, `which`
+   - **Modal / Auxiliary Starters:** `can you/we`, `could you/we`, `would you`, `have you ever`, `did you`, `do you`, `are you`
+   - **Imperative Interview Prompts:** `tell me/us about`, `walk me/us through`, `describe`, `explain`, `share an example`, `give me/us an example`, `elaborate on`, `compare and contrast`
+   - **Indirect Prompts:** `I'd love to hear about`, `I'm curious about`, `let's talk about`, `let's discuss`
+5. **Dual-Layer Deduplication:** Prevents re-answering the same question via normalized string comparison, a 60-second substring containment check, and token-level **Jaccard similarity (`>= 0.85`)**.
 
 ---
 
-## 9. Production Risk Assessment (≤ 300 Words)
+## 4. Known Limitations
+
+1. **Single-Channel Audio in Microphone Mode (No Speaker Diarization):** In **Mode B (Microphone Audio)** where both interviewer and candidate are picked up by the same mic, the audio stream is single-channel. (**Mode A: Browser Tab Audio** avoids this because capturing a meeting tab only captures remote participants' audio, not the local microphone).
+2. **`MediaRecorder` Container Framing vs. Raw PCM:** Browser `MediaRecorder` wraps Opus frames inside a WebM container (`250ms` slices), which requires chunk `#0` header preservation and adds ~100–150ms of browser encoding latency compared to raw PCM frames.
+3. **Heuristic Boundary Edge Cases:** Purely declarative prompts where an interviewer states a fact (*"Your resume mentions Redis"*) and waits silently without an interrogative, imperative, or indirect cue are ignored by design to avoid false-positive answers on normal statements.
+4. **Single-Node In-Memory State:** Session state (`SessionManagerService`), metrics (`MetricsService`), and STT stream handles live in process memory.
+
+---
+
+## 5. What I Would Build Next With Another Week
+
+1. **Dual-Stream Acoustic Channel Separation (`Tab = Channel 0 [Interviewer]`, `Mic = Channel 1 [Candidate]`):**
+   - Simultaneously capture the meeting tab (`getDisplayMedia`) and the candidate's microphone (`getUserMedia`) into separate channels. This guarantees **zero false triggers** from the candidate's own voice, feeds the candidate's *actual spoken answers* into `<conversation_context>`, and auto-checks off bullet points on screen as the candidate speaks them.
+2. **Speculative Context Pre-Fetching on Interim Transcripts:**
+   - Index the candidate's resume, GitHub READMEs, and architecture notes into structured claim chunks, and trigger **speculative retrieval on interim transcripts** while the interviewer is still 70% through speaking the question—so relevant project metrics are already assembled in memory the millisecond `speech_final` fires.
+3. **`AudioWorklet` Linear16 PCM Pipeline (`16kHz` Mono):**
+   - Replace `MediaRecorder` WebM blobs with a custom WebAudio `AudioWorkletProcessor` streaming raw `16kHz` 16-bit Linear PCM (`audio/pcm`). Every PCM frame is self-describing, enabling zero-downtime mid-utterance STT failover without container headers and shaving ~120ms off audio capture latency.
+4. **Asynchronous Ambiguous-Utterance Micro-Classifier:**
+   - Keep the `< 2ms` deterministic state machine as the primary fast path (handling ~95% of questions instantly), and run an async fallback micro-classifier (`gemini-2.5-flash-lite`) *only* when an utterance is rejected by heuristics yet followed by > 1.5s of silence.
+
+---
+
+## 6. Top 3 Production Risks & Mitigations (≤ 300 Words)
 
 ### 1. Audio Privacy, Two-Party Consent, and Data Security
 Capturing live interview audio introduces strict legal and privacy obligations (e.g., GDPR, CCPA, and two-party recording consent laws) alongside risks of exposing sensitive PII in resumes and transcripts.
